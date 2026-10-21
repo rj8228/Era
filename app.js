@@ -354,12 +354,12 @@ function readOnb0() { const a = $("#o-age"), l = $("#o-leave"); if (a) S.me.age 
 function sheet(title, html) {
   const el = document.createElement("div"); el.className = "sheet"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", title);
   el.innerHTML = `<div class="in"><div class="grab"></div><div class="hd"><h2 tabindex="-1">${esc(title)}</h2><button class="icon-btn" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="body">${html}</div></div>`;
-  el.addEventListener("click", e => { if (e.target === el || e.target.closest("[data-close]")) el.remove(); });
+  el.addEventListener("click", e => { if (e.target === el || e.target.closest("[data-close]")) { if (el.beforeClose) el.beforeClose(); el.remove(); } });
   $("#sheets").appendChild(el); el.querySelector("h2").focus({ preventScroll: true });
   return el;
 }
 const closeSheets = () => $("#sheets").innerHTML = "";
-document.addEventListener("keydown", e => { if (e.key === "Escape") { const s = document.querySelector(".sheet:last-child"); if (s) s.remove(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { const s = document.querySelector(".sheet:last-child"); if (s) { if (s.beforeClose) s.beforeClose(); s.remove(); } } });
 const bucketOpts = (sel, list) => (list || ORDER).map(k => `<option value="${k}" ${k === sel ? "selected" : ""}>${B[k].n}</option>`).join("");
 
 function weekEditor() {
@@ -380,10 +380,13 @@ function moveSheet() {
     <label class="f" for="mv-to">To</label><select id="mv-to">${bucketOpts("health", FREE)}</select>
     <label class="f" for="mv-h">Hours a week</label><input type="number" id="mv-h" value="2" min="0.5" step="0.5">
     <label class="f" for="mv-note">How, in a few words</label><input type="text" id="mv-note" placeholder="e.g. Run Tue, Thu and Sat mornings">
-    <p class="tiny muted" id="mv-info"></p><div class="btns"><button class="btn primary block" data-savemove>Move them</button></div>`);
+    <p class="tiny muted" id="mv-info"></p><div class="btns" style="position:sticky;bottom:0;background:var(--bg);padding:8px 0"><button class="btn primary block" data-savemove>Save shift</button></div><p class="tiny muted" style="text-align:center">Closing this also saves it.</p>`);
   const info = () => { const f = el.querySelector("#mv-from").value, h = +el.querySelector("#mv-h").value || 0; el.querySelector("#mv-info").textContent = `${B[f].n} has ${hh(tw[f])} a week now. ${S.protect.includes(f) ? "It's protected; you can still move from it, on purpose." : ""} ${h ? Math.round(h * 13) + " hours over the era." : ""}`; };
   info(); el.addEventListener("input", info);
-  el.querySelector("[data-savemove]").onclick = () => { const f = el.querySelector("#mv-from").value, to = el.querySelector("#mv-to").value, h = +el.querySelector("#mv-h").value || 0; if (f === to || h <= 0) { toast("Pick two different buckets"); return; } S.moves.push({ id: uid(), q, from: f, to, h, note: el.querySelector("#mv-note").value.trim() }); save(); el.remove(); render(); toast("Shifted " + hh(h) + " a week to " + SHORT[to]); };
+  let saved = false, touched = false; el.addEventListener("input", () => touched = true); el.addEventListener("change", () => touched = true);
+  const doSave = quiet => { const f = el.querySelector("#mv-from").value, to = el.querySelector("#mv-to").value, h = +el.querySelector("#mv-h").value || 0; if (f === to || h <= 0) { if (!quiet) toast("Pick two different areas and some hours"); return false; } S.moves.push({ id: uid(), q, from: f, to, h, note: el.querySelector("#mv-note").value.trim() }); saved = true; save(); render(); toast("Shifted " + hh(h) + " a week to " + SHORT[to]); return true; };
+  el.querySelector("[data-savemove]").onclick = () => { if (doSave()) el.remove(); };
+  el.beforeClose = () => { if (!saved && touched) doSave(true); };
 }
 function makeRoomSheet() {
   const t = today(); const tw = templateWeek();
@@ -401,13 +404,15 @@ function makeRoomSheet() {
     <p class="tiny muted">You'll see this line again on ${fmtShort(add(g.end, 1))}, whatever happens.</p>
     <div class="btns"><button class="btn primary block" data-savegoal ${got >= per - 0.01 ? "" : "disabled style=\"opacity:.5\""}>Make room for ${wks} week${wks > 1 ? "s" : ""}</button></div>`; };
   const el = sheet(L("lockin"), body());
+  let gsaved = false;
+  el.beforeClose = () => { if (gsaved) return; sync(); const per = g.total / goalWeeks(g), got = Object.values(g.src).reduce((a, b) => a + b, 0); if (g.title.trim() && got >= per - 0.01) { S.goals.push(Object.assign({ id: uid() }, g, { title: g.title.trim() })); save(); render(); toast("Saved " + g.title.trim()); } else if (g.title.trim()) toast("Not saved: choose where all " + hh(per) + " a week come from"); };
   const sync = () => { g.title = el.querySelector("#g-title").value; g.total = Math.max(1, +el.querySelector("#g-total").value || 1); g.end = el.querySelector("#g-end").value || g.end; const c = el.querySelector("#g-corner").value; if (c !== g.corner) { delete g.src[c]; g.corner = c; } g.why = el.querySelector("#g-why").value; };
   const rerender = (focusId) => { const pos = focusId && el.querySelector("#" + focusId) ? el.querySelector("#" + focusId).selectionStart : null; el.querySelector(".body").innerHTML = body(); if (focusId) { const f = el.querySelector("#" + focusId); if (f) { f.focus(); try { if (pos != null) f.setSelectionRange(pos, pos); } catch (e) {} } } };
   el.addEventListener("change", e => { if (["g-total", "g-end", "g-corner"].includes(e.target.id)) { sync(); rerender(); } });
   el.addEventListener("input", e => { if (e.target.id === "g-title" || e.target.id === "g-why") sync(); });
   el.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.step && b.dataset.step.startsWith("g:")) { sync(); const k = b.dataset.step.split("|")[0].slice(2), dv = +b.dataset.step.split("|")[1]; g.src[k] = Math.max(0, Math.min(tw[k], (g.src[k] || 0) + dv)); rerender(); }
-    if (b.hasAttribute("data-savegoal")) { sync(); if (!g.title.trim()) { toast("Name the goal first"); return; } S.goals.push(Object.assign({ id: uid() }, g, { title: g.title.trim() })); save(); el.remove(); render(); toast("Room made for " + g.title.trim()); }
+    if (b.hasAttribute("data-savegoal")) { sync(); if (!g.title.trim()) { toast("Name the goal first"); return; } gsaved = true; S.goals.push(Object.assign({ id: uid() }, g, { title: g.title.trim() })); save(); el.remove(); render(); toast("Room made for " + g.title.trim()); }
   });
 }
 function planSheet(when) {
@@ -416,12 +421,13 @@ function planSheet(when) {
     <label class="f" for="p-corner">Area</label><select id="p-corner">${bucketOpts("travel", CORNERS)}</select>
     <label class="f">When</label><div class="seg" role="group">${[["week", "This week"], ["next", "Next week"], ["month", "This month"], ["quarter", "This era"]].map(([k, n]) => `<button data-pw="${k}" aria-pressed="${k === (when || "week")}">${n}</button>`).join("")}</div>
     <div class="btns"><button class="btn primary block" data-saveplan>Add</button></div>`);
-  let w = when || "week";
+  let w = when || "week"; let saved = false;
+  el.beforeClose = () => { if (!saved && el.querySelector("#p-title").value.trim()) { const btn = el.querySelector("[data-saveplan]"); btn.click(); } };
   el.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.pw) { w = b.dataset.pw; el.querySelectorAll("[data-pw]").forEach(x => x.setAttribute("aria-pressed", x === b)); }
     if (b.hasAttribute("data-saveplan")) { const title = el.querySelector("#p-title").value.trim(); if (!title) { toast("Write what the plan is"); return; }
       const wk = w === "next" ? add(monday(t), 7) : monday(t);
-      S.plans.push({ id: uid(), title, corner: el.querySelector("#p-corner").value, when: w === "next" ? "week" : w, week: (w === "week" || w === "next") ? wk : null, month: t.slice(0, 7), q: qKey(w === "next" ? wk : t), status: "open", moved: 0, created: t }); save(); el.remove(); render(); }
+      saved = true; S.plans.push({ id: uid(), title, corner: el.querySelector("#p-corner").value, when: w === "next" ? "week" : w, week: (w === "week" || w === "next") ? wk : null, month: t.slice(0, 7), q: qKey(w === "next" ? wk : t), status: "open", moved: 0, created: t }); save(); el.remove(); render(); }
   });
 }
 function customEntry(day) {
