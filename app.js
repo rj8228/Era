@@ -57,6 +57,7 @@ const LABELS = {
   phone: ["Doomscroll", "the phone and TV bucket"]
 };
 const L = k => (S.labels && S.labels[k]) || LABELS[k][0];
+const L_ = L;
 
 /* ---------- State ---------- */
 function defaults() {
@@ -106,7 +107,8 @@ function take(o, from, h) { // take h hours, preferring `from`, then the fallbac
   for (const k of order) { if (h <= 0) break; const t = Math.min(o[k], h); o[k] -= t; h -= t; }
 }
 function actualDay(s) {
-  const o = templateDay(s); const L = S.logs[s];
+  const L = S.logs[s];
+  const o = L && L.hours ? Object.assign(zero(), L.hours) : templateDay(s);
   if (L && L.e) L.e.forEach(x => { take(o, x.from, x.h); o[x.to] += x.h; });
   return o;
 }
@@ -172,7 +174,15 @@ const stepper = (key, v, lbl) => `<button class="step" data-step="${key}|-0.5" a
 const eraName = q => (S.eras[q] && S.eras[q].name) || "";
 
 /* ---------- Render ---------- */
+let detailsOpen = false;
 function render() {
+  const dt = document.querySelector("#view details"); if (dt) detailsOpen = dt.open;
+  const y = window.scrollY;
+  render0();
+  const n = document.querySelector("#view details"); if (n && detailsOpen) n.open = true;
+  if (n || tab === "today") window.scrollTo(0, y);
+}
+function render0() {
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false"));
   if (!S.onboarded) { $("#tabs").hidden = true; $("#top").hidden = true; return renderOnb(); }
   $("#tabs").hidden = false; $("#top").hidden = false;
@@ -204,13 +214,16 @@ function renderToday() {
 }
 function logCard(s, Lg, o) {
   const L = Lg; const e = (L && L.e) || [];
-  let h = `<div class="card"><div class="small muted" style="margin-bottom:6px">${L ? (e.length ? "Logged, with changes" : "Logged as a usual day") : "Your usual " + DOWL[dow(s)]}</div>${dayBar(o, "Today by hour")}`;
-  h += `<div class="btns"><button class="btn ${L && !e.length ? "" : "primary"} grow" data-usual="${s}">${L && !e.length ? "Usual day ✓" : "Same as usual"}</button></div>`;
+  let h = `<div class="card"><div class="small muted" style="margin-bottom:6px">${L ? (L.hours ? "Logged hour by hour" : e.length ? "Logged, with changes" : "Logged as a usual day") : "Your usual " + DOWL[dow(s)]}</div>${dayBar(o, "Today by hour")}`;
+  h += `<div class="btns"><button class="btn ${L && !e.length ? "" : "primary"} grow" data-usual="${s}">${L && !e.length && !L.hours ? "Usual day ✓" : "Same as usual"}</button></div>`;
   h += `<div class="small" style="font-weight:600;margin:4px 0 6px">Or tap what was different</div><div class="chips">` +
     CHIPS.map((c, i) => `<button class="chip" data-chip="${s}|${i}">${esc(c.l)}</button>`).join("") +
     S.goals.filter(g => !g.closed && s >= g.start && s <= g.end).map(g => `<button class="chip" data-gchip="${s}|${g.id}">${esc(g.title)} · 1 h</button>`).join("") +
     `<button class="chip" data-act="custom-entry" data-day="${s}">Something else</button></div>`;
   if (e.length) h += `<div style="margin-top:8px">` + e.map((x, i) => `<div class="li"><span class="grow small">${dotFor(x.to)}<b>${esc(x.l || B[x.to].n)}</b><br><span class="muted">from ${esc(B[x.from].n.toLowerCase())}</span></span>${stepper("e:" + s + ":" + i, x.h, x.l || B[x.to].n)}<button class="icon-btn" data-rme="${s}|${i}" aria-label="Remove"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).join("") + `</div>`;
+  const tot = sumDay(o);
+  h += `<details style="margin-top:10px" ${L && L.hours ? "open" : ""}><summary style="font-weight:600;cursor:pointer;min-height:40px;display:flex;align-items:center">Set all 24 hours yourself</summary><p class="tiny" style="font-weight:700;margin:6px 0;color:${Math.abs(tot - 24) < 0.01 ? "var(--good)" : "var(--warn)"}">${hh(tot)} of 24 h${tot < 24 ? " · " + hh(24 - tot) + " to place" : tot > 24 ? " · " + hh(tot - 24) + " too many" : " ✓"}</p>` +
+    ORDER.map(k => `<div class="li" style="min-height:44px;padding:6px 0"><span class="grow small">${dotFor(k)}${esc(k === "phone" ? L_("phone") : B[k].n)}</span>${stepper("d:" + s + ":" + k, o[k], B[k].n)}</div>`).join("") + `</details>`;
   h += `<label class="f" for="good-${s}">One good thing</label><input type="text" id="good-${s}" data-logf="${s}|good" value="${esc(L && L.good || "")}" placeholder="e.g. First run in weeks">`;
   h += `<label class="f" for="chg-${s}">One thing to change tomorrow</label><input type="text" id="chg-${s}" data-logf="${s}|change" value="${esc(L && L.change || "")}" placeholder="e.g. Phone in the hall after 10">`;
   h += `<label class="f">Energy</label><div class="seg" role="group">${[["low", "Drained"], ["okay", "Okay"], ["high", "Full of it"]].map(([k, n]) => `<button data-energy="${s}|${k}" aria-pressed="${L && L.energy === k}">${n}</button>`).join("")}</div></div>`;
@@ -430,7 +443,7 @@ function settingsSheet() {
   });
 }
 
-function daySheet(d) { const el = sheet(fmt(d), logCard(d, S.logs[d], actualDay(d))); const re = () => { if (el.isConnected) el.querySelector(".body").innerHTML = logCard(d, S.logs[d], actualDay(d)); }; el.addEventListener("click", () => setTimeout(re, 0)); }
+function daySheet(d) { const el = sheet(fmt(d), logCard(d, S.logs[d], actualDay(d))); const re = () => { if (!el.isConnected) return; const dt = el.querySelector("details"), open = dt && dt.open, y = el.querySelector(".in").scrollTop; el.querySelector(".body").innerHTML = logCard(d, S.logs[d], actualDay(d)); const n = el.querySelector("details"); if (n && open) n.open = true; el.querySelector(".in").scrollTop = y; }; el.addEventListener("click", e => { if (e.target.closest("button")) setTimeout(re, 0); }); }
 
 /* ---------- Calendar and native reminders ---------- */
 function nextAt(hm, dowWanted) { const [H, M] = hm.split(":").map(Number); const d = new Date(); d.setHours(H, M, 0, 0); if (dowWanted !== undefined) { while (d.getDay() !== dowWanted || d < new Date()) d.setDate(d.getDate() + 1); } else if (d < new Date()) d.setDate(d.getDate() + 1); return d; }
@@ -450,11 +463,12 @@ document.addEventListener("click", e => {
   if (b.dataset.tab) { tab = b.dataset.tab; closeSheets(); render(); window.scrollTo(0, 0); return; }
   if (b.dataset.gotab) { tab = b.dataset.gotab; render(); window.scrollTo(0, 0); return; }
   if (b.id === "btnSettings") return settingsSheet();
-  if (b.dataset.usual) { const d = b.dataset.usual; S.logs[d] = Object.assign(S.logs[d] || {}, { e: [], at: Date.now() }); save(); render(); toast("Logged as a usual day"); return; }
+  if (b.dataset.usual) { const d = b.dataset.usual; S.logs[d] = Object.assign(S.logs[d] || {}, { e: [], hours: null, at: Date.now() }); save(); render(); toast("Logged as a usual day"); return; }
   if (b.dataset.chip) { const [d, i] = b.dataset.chip.split("|"); const c = CHIPS[+i]; addEntry(d, { to: c.to, from: c.from, h: c.h, l: c.l }); return; }
   if (b.dataset.gchip) { const [d, id] = b.dataset.gchip.split("|"); const g = S.goals.find(x => x.id === id); const from = Object.keys(g.src).sort((a, c) => g.src[c] - g.src[a])[0] || "phone"; addEntry(d, { to: g.corner, from, h: 1, l: g.title }); return; }
   if (b.dataset.rme) { const [d, i] = b.dataset.rme.split("|"); S.logs[d].e.splice(+i, 1); save(); render(); return; }
-  if (b.dataset.step && !b.closest(".sheet")) { const [key, dv] = b.dataset.step.split("|"); const p = key.split(":");
+  if (b.dataset.step && /^[emd]:/.test(b.dataset.step)) { const [key, dv] = b.dataset.step.split("|"); const p = key.split(":");
+    if (p[0] === "d") { const d = p[1], k = p[2]; const Lg = S.logs[d] = S.logs[d] || { e: [] }; if (!Lg.hours) { Lg.hours = actualDay(d); Lg.e = []; } Lg.hours[k] = Math.max(0, (Lg.hours[k] || 0) + +dv); Lg.at = Date.now(); }
     if (p[0] === "e") { const x = S.logs[p[1]].e[+p[2]]; x.h = Math.max(0.5, x.h + +dv); }
     if (p[0] === "m") { const m = S.moves.find(x => x.id === p[1]); m.h = Math.max(0.5, m.h + +dv); }
     save(); render(); return; }
