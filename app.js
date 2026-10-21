@@ -170,7 +170,18 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function toast(m) { const t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status"); t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2300); }
 let tab = "today", weekOf = null;
-const stepper = (key, v, lbl) => `<button class="step" data-step="${key}|-0.5" aria-label="Less ${esc(lbl)}">−</button><span class="val">${hh(v)}</span><button class="step" data-step="${key}|0.5" aria-label="More ${esc(lbl)}">+</button>`;
+const stepper = (key, v, lbl) => `<button class="step" data-step="${key}|-0.5" aria-label="Less ${esc(lbl)}">−</button>${/^[emd]:/.test(key) ? `<input class="valin" type="number" inputmode="decimal" min="0" max="24" step="0.5" data-setval="${key}" value="${h1(v)}" aria-label="${esc(lbl)} hours">` : `<span class="val">${hh(v)}</span>`}<button class="step" data-step="${key}|0.5" aria-label="More ${esc(lbl)}">+</button>`;
+function setVal(key, v) { // set an entry, a shift or a day's bucket to exactly v hours
+  const p = key.split(":"); v = Math.max(0, Math.min(24, +v || 0));
+  if (p[0] === "e") { const L = S.logs[p[1]]; if (!L || !L.e[+p[2]]) return; if (v === 0) L.e.splice(+p[2], 1); else L.e[+p[2]].h = v; }
+  if (p[0] === "m") { const m = S.moves.find(x => x.id === p[1]); if (!m) return; if (v === 0) S.moves = S.moves.filter(x => x !== m); else m.h = v; }
+  if (p[0] === "d") { const d = p[1], k = p[2]; const Lg = S.logs[d] = S.logs[d] || { e: [] }; if (!Lg.hours) { Lg.hours = actualDay(d); Lg.e = []; } Lg.hours[k] = v; Lg.at = Date.now(); }
+  save();
+}
+function curVal(key) { const p = key.split(":");
+  if (p[0] === "e") { const L = S.logs[p[1]]; return L && L.e[+p[2]] ? L.e[+p[2]].h : 0; }
+  if (p[0] === "m") { const m = S.moves.find(x => x.id === p[1]); return m ? m.h : 0; }
+  if (p[0] === "d") return actualDay(p[1])[p[2]] || 0; return 0; }
 const eraName = q => (S.eras[q] && S.eras[q].name) || "";
 
 /* ---------- Render ---------- */
@@ -205,7 +216,7 @@ function renderToday() {
   if (!S.logs[y] && S.onboardedAt && y >= S.onboardedAt) h += `<div class="card row"><span class="grow">Yesterday isn't logged.</span><button class="btn sm" data-act="usual-yday">Same as usual</button><button class="btn sm" data-act="open-yday">Log it</button></div>`;
   // goal end reflections
   S.goals.filter(g => !g.closed && g.end < t).forEach(g => { h += `<div class="card"><span class="tag blue">Make room ended</span><h3 style="margin-top:6px">${esc(g.title)}</h3><p class="small muted" style="margin-top:4px">You chose this because: “${esc(g.why || "you didn't write a reason")}”</p><div class="btns"><button class="btn sm" data-goalend="${g.id}|done">It happened</button><button class="btn sm" data-goalend="${g.id}|part">Partly</button><button class="btn sm" data-goalend="${g.id}|no">Not this time</button></div></div>`; });
-  h += `<h2>${esc(L("today"))}</h2>` + logCard(t, Lg, o);
+  h += `<h2>${esc(L("today"))}</h2><p class="small muted" style="margin-top:-4px">Today so far: ${hh(free(o))} free · ${hh(o.phone)} ${esc(L("phone").toLowerCase())} · ${hh(o.sleep)} sleep</p>` + logCard(t, Lg, o);
   // plans due
   const open = S.plans.filter(p => p.status === "open" && (p.when === "week" ? p.week === monday(t) : p.q === q));
   if (open.length) h += `<h2>${esc(L("quests"))}</h2><div class="card">` + open.slice(0, 6).map(planRow).join("") + `</div>`;
@@ -222,7 +233,7 @@ function logCard(s, Lg, o) {
     `<button class="chip" data-act="custom-entry" data-day="${s}">Something else</button></div>`;
   if (e.length) h += `<div style="margin-top:8px">` + e.map((x, i) => `<div class="li"><span class="grow small">${dotFor(x.to)}<b>${esc(x.l || B[x.to].n)}</b><br><span class="muted">from ${esc(B[x.from].n.toLowerCase())}</span></span>${stepper("e:" + s + ":" + i, x.h, x.l || B[x.to].n)}<button class="icon-btn" data-rme="${s}|${i}" aria-label="Remove"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).join("") + `</div>`;
   const tot = sumDay(o);
-  h += `<details style="margin-top:10px" ${L && L.hours ? "open" : ""}><summary style="font-weight:600;cursor:pointer;min-height:40px;display:flex;align-items:center">Set all 24 hours yourself</summary><p class="tiny" style="font-weight:700;margin:6px 0;color:${Math.abs(tot - 24) < 0.01 ? "var(--good)" : "var(--warn)"}">${hh(tot)} of 24 h${tot < 24 ? " · " + hh(24 - tot) + " to place" : tot > 24 ? " · " + hh(tot - 24) + " too many" : " ✓"}</p>` +
+  h += `<details style="margin-top:10px" ${L && L.hours ? "open" : ""}><summary style="font-weight:600;cursor:pointer;min-height:40px;display:flex;align-items:center">Set all 24 hours yourself</summary><p class="tiny" style="font-weight:700;margin:6px 0;color:${Math.abs(tot - 24) < 0.01 ? "var(--good)" : "var(--warn)"}">${hh(tot)} of 24 h${tot < 24 ? " · " + hh(24 - tot) + " to place" : tot > 24 ? " · " + hh(tot - 24) + " too many" : " ✓"}${Math.abs(tot - 24) > 0.01 ? ` <button class="btn sm" data-balance="${s}">${tot < 24 ? "Add the rest to Rest" : "Take it from Rest and " + esc(L_("phone"))}</button>` : ""}</p>` +
     ORDER.map(k => `<div class="li" style="min-height:44px;padding:6px 0"><span class="grow small">${dotFor(k)}${esc(k === "phone" ? L_("phone") : B[k].n)}</span>${stepper("d:" + s + ":" + k, o[k], B[k].n)}</div>`).join("") + `</details>`;
   h += `<label class="f" for="good-${s}">One good thing</label><input type="text" id="good-${s}" data-logf="${s}|good" value="${esc(L && L.good || "")}" placeholder="e.g. First run in weeks">`;
   h += `<label class="f" for="chg-${s}">One thing to change tomorrow</label><input type="text" id="chg-${s}" data-logf="${s}|change" value="${esc(L && L.change || "")}" placeholder="e.g. Phone in the hall after 10">`;
@@ -443,7 +454,7 @@ function settingsSheet() {
   });
 }
 
-function daySheet(d) { const el = sheet(fmt(d), logCard(d, S.logs[d], actualDay(d))); const re = () => { if (!el.isConnected) return; const dt = el.querySelector("details"), open = dt && dt.open, y = el.querySelector(".in").scrollTop; el.querySelector(".body").innerHTML = logCard(d, S.logs[d], actualDay(d)); const n = el.querySelector("details"); if (n && open) n.open = true; el.querySelector(".in").scrollTop = y; }; el.addEventListener("click", e => { if (e.target.closest("button")) setTimeout(re, 0); }); }
+function daySheet(d) { const el = sheet(fmt(d), logCard(d, S.logs[d], actualDay(d))); const re = () => { if (!el.isConnected) return; const dt = el.querySelector("details"), open = dt && dt.open, y = el.querySelector(".in").scrollTop; el.querySelector(".body").innerHTML = logCard(d, S.logs[d], actualDay(d)); const n = el.querySelector("details"); if (n && open) n.open = true; el.querySelector(".in").scrollTop = y; }; el.addEventListener("click", e => { if (e.target.closest("button")) setTimeout(re, 0); }); el.addEventListener("refresh", () => setTimeout(re, 0)); }
 
 /* ---------- Calendar and native reminders ---------- */
 function nextAt(hm, dowWanted) { const [H, M] = hm.split(":").map(Number); const d = new Date(); d.setHours(H, M, 0, 0); if (dowWanted !== undefined) { while (d.getDay() !== dowWanted || d < new Date()) d.setDate(d.getDate() + 1); } else if (d < new Date()) d.setDate(d.getDate() + 1); return d; }
@@ -467,16 +478,13 @@ document.addEventListener("click", e => {
   if (b.dataset.chip) { const [d, i] = b.dataset.chip.split("|"); const c = CHIPS[+i]; addEntry(d, { to: c.to, from: c.from, h: c.h, l: c.l }); return; }
   if (b.dataset.gchip) { const [d, id] = b.dataset.gchip.split("|"); const g = S.goals.find(x => x.id === id); const from = Object.keys(g.src).sort((a, c) => g.src[c] - g.src[a])[0] || "phone"; addEntry(d, { to: g.corner, from, h: 1, l: g.title }); return; }
   if (b.dataset.rme) { const [d, i] = b.dataset.rme.split("|"); S.logs[d].e.splice(+i, 1); save(); render(); return; }
-  if (b.dataset.step && /^[emd]:/.test(b.dataset.step)) { const [key, dv] = b.dataset.step.split("|"); const p = key.split(":");
-    if (p[0] === "d") { const d = p[1], k = p[2]; const Lg = S.logs[d] = S.logs[d] || { e: [] }; if (!Lg.hours) { Lg.hours = actualDay(d); Lg.e = []; } Lg.hours[k] = Math.max(0, (Lg.hours[k] || 0) + +dv); Lg.at = Date.now(); }
-    if (p[0] === "e") { const x = S.logs[p[1]].e[+p[2]]; x.h = Math.max(0.5, x.h + +dv); }
-    if (p[0] === "m") { const m = S.moves.find(x => x.id === p[1]); m.h = Math.max(0.5, m.h + +dv); }
-    save(); render(); return; }
+  if (b.dataset.step && /^[emd]:/.test(b.dataset.step)) { const [key, dv] = b.dataset.step.split("|"); setVal(key, curVal(key) + +dv); render(); return; }
   if (b.dataset.energy) { const [d, k] = b.dataset.energy.split("|"); S.logs[d] = S.logs[d] || { e: [] }; S.logs[d].energy = k; save(); render(); return; }
   if (b.dataset.plan) { const [id, st] = b.dataset.plan.split("|"); const p = S.plans.find(x => x.id === id);
     if (st === "moved") { p.moved = (p.moved || 0) + 1; if (p.when === "week") p.week = add(p.week, 7); else if (p.when === "month") p.when = "quarter"; else p.q = qKey(add(qEnd(p.q), 1)); toast("Moved. It keeps its place in line."); }
     else { p.status = st; p.doneAt = today(); if (st === "done") toast(p.moved ? "Done, a bit late. Late still counts." : "Done"); }
     save(); render(); return; }
+  if (b.dataset.balance) { const d = b.dataset.balance; const o = actualDay(d), gap = 24 - sumDay(o); if (gap > 0) setVal("d:" + d + ":rest", o.rest + gap); else { let need = -gap; for (const k of ["rest", "phone", "travel", "learn", "people", "family", "health", "chores", "sleep"]) { const cur = actualDay(d)[k], t = Math.min(cur, need); if (t > 0) { setVal("d:" + d + ":" + k, cur - t); need -= t; } if (need <= 0) break; } } render(); return; }
   if (b.dataset.logday) return daySheet(b.dataset.logday);
   if (b.dataset.openweek) { weekOf = b.dataset.openweek; tab = "week"; render(); window.scrollTo(0, 0); return; }
   if (b.dataset.week) { weekOf = add(weekOf, +b.dataset.week); render(); return; }
@@ -507,6 +515,7 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("change", e => {
   const t = e.target;
+  if (t.dataset.setval) { setVal(t.dataset.setval, t.value); render(); const sh = t.closest(".sheet"); if (sh) sh.dispatchEvent(new Event("refresh")); return; }
   if (t.dataset.logf) { const [d, f] = t.dataset.logf.split("|"); S.logs[d] = S.logs[d] || { e: [] }; S.logs[d][f] = t.value.trim(); S.logs[d].at = S.logs[d].at || Date.now(); save(); }
   if (t.dataset.eraname) { const q = t.dataset.eraname; S.eras[q] = Object.assign(S.eras[q] || {}, { name: t.value.trim() }); save(); render(); }
   if (t.dataset.erar) { const q = qKey(today()); S.eras[q] = Object.assign(S.eras[q] || {}, { [t.dataset.erar]: t.value.trim() }); save(); }
