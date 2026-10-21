@@ -17,9 +17,10 @@ const B = {
   learn:   { n: "Learning and hobbies", c: "#1F8A93", corner: 1 },
   travel:  { n: "Trips and outings", c: "#D9A22B", corner: 1 },
   rest:    { n: "Rest", c: "#B9D3F0" },
-  phone:   { n: "Doomscroll (phone and TV)", c: "stripe" }
+  phone:   { n: "Doomscroll (phone and TV)", c: "stripe" },
+  other:   { n: "Not sure", c: "#E3E6EE", fixed: 1 }
 };
-const ORDER = ["sleep", "work", "commute", "chores", "family", "people", "health", "learn", "travel", "rest", "phone"];
+const ORDER = ["sleep", "work", "commute", "chores", "family", "people", "health", "learn", "travel", "rest", "phone", "other"];
 const FREE = ORDER.filter(k => !B[k].fixed);
 const CORNERS = ["travel", "people", "health", "learn", "family"]; // pentagon, clockwise from the top
 const SHORT0 = { travel: "Travel", people: "People", health: "Health", learn: "Learn", family: "Family", rest: "Rest", phone: "Phone", sleep: "Sleep", work: "Work", commute: "Commute", chores: "Chores" };
@@ -133,6 +134,18 @@ const hh = x => h1(x) + " h";
 
 const SHORT = new Proxy(SHORT0, { get: (o, k) => k === "phone" ? L("phone") : o[k] });
 
+/* A day always holds exactly 24 hours. Raising one area takes the hours from "Not sure", then
+   doomscroll, then rest, then the rest in order; lowering one puts the hours into "Not sure". */
+const SOURCE = ["other", "phone", "rest", "travel", "learn", "people", "family", "health", "chores", "sleep", "commute", "work"];
+function dayHours(d) { const o = actualDay(d); const t = sumDay(o); if (Math.abs(t - 24) > 0.01) { if (t < 24) o.other += 24 - t; else take(o, "other", t - 24); } return o; }
+function setHour(d, k, v, prefer) {
+  const o = dayHours(d); v = Math.max(0, Math.min(24, Math.round(v * 2) / 2)); let delta = v - o[k];
+  if (delta < 0) { o.other += -delta; o[k] = v; }
+  else if (delta > 0) { const order = (prefer ? [prefer] : []).concat(SOURCE).filter((x, i, a) => x !== k && a.indexOf(x) === i);
+    for (const x of order) { if (delta <= 0) break; const t = Math.min(o[x], delta); o[x] -= t; o[k] += t; delta -= t; } }
+  const Lg = S.logs[d] = S.logs[d] || {}; Lg.hours = o; Lg.e = []; Lg.at = Date.now(); save();
+}
+
 /* ---------- Pentagon ---------- */
 function pentagon(shapes, size, opts) {
   opts = opts || {};
@@ -157,7 +170,7 @@ function pentagon(shapes, size, opts) {
 const LEG = (a, b) => `<div class="legend"><span><svg width="18" height="6" aria-hidden="true"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"></line></svg> ${a}</span><span><svg width="18" height="6" aria-hidden="true"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--accent)" stroke-width="3"></line></svg> ${b}</span></div>`;
 
 /* ---------- Day bar ---------- */
-const BAR_ORDER = ["sleep", "chores", "commute", "work", "family", "people", "health", "learn", "travel", "phone", "rest"];
+const BAR_ORDER = ["sleep", "chores", "commute", "work", "family", "people", "health", "learn", "travel", "phone", "rest", "other"];
 function dayBar(o, label) {
   let x = 0, r = "", W = 330, tot = Math.max(24, sumDay(o));
   BAR_ORDER.forEach(k => { const w = o[k] / tot * W; if (w <= 0.2) return; r += `<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="26" fill="${B[k].c === "stripe" ? "url(#strp)" : B[k].c}"></rect>`; x += w; });
@@ -231,10 +244,9 @@ function logCard(s, Lg, o) {
     CHIPS.map((c, i) => `<button class="chip" data-chip="${s}|${i}">${esc(c.l)}</button>`).join("") +
     S.goals.filter(g => !g.closed && s >= g.start && s <= g.end).map(g => `<button class="chip" data-gchip="${s}|${g.id}">${esc(g.title)} · 1 h</button>`).join("") +
     `<button class="chip" data-act="custom-entry" data-day="${s}">Something else</button></div>`;
+  if (L && L.tags && L.tags.length) h += `<p class="small" style="margin:8px 0 0">${L.tags.map(x => `<span class="tag good" style="margin:0 4px 4px 0">${esc(x)}</span>`).join("")}</p>`;
   if (e.length) h += `<div style="margin-top:8px">` + e.map((x, i) => `<div class="li"><span class="grow small">${dotFor(x.to)}<b>${esc(x.l || B[x.to].n)}</b><br><span class="muted">from ${esc(B[x.from].n.toLowerCase())}</span></span>${stepper("e:" + s + ":" + i, x.h, x.l || B[x.to].n)}<button class="icon-btn" data-rme="${s}|${i}" aria-label="Remove"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).join("") + `</div>`;
-  const tot = sumDay(o);
-  h += `<details style="margin-top:10px" ${L && L.hours ? "open" : ""}><summary style="font-weight:600;cursor:pointer;min-height:40px;display:flex;align-items:center">Set all 24 hours yourself</summary><p class="tiny" style="font-weight:700;margin:6px 0;color:${Math.abs(tot - 24) < 0.01 ? "var(--good)" : "var(--warn)"}">${hh(tot)} of 24 h${tot < 24 ? " · " + hh(24 - tot) + " to place" : tot > 24 ? " · " + hh(tot - 24) + " too many" : " ✓"}${Math.abs(tot - 24) > 0.01 ? ` <button class="btn sm" data-balance="${s}">${tot < 24 ? "Add the rest to Rest" : "Take it from Rest and " + esc(L_("phone"))}</button>` : ""}</p>` +
-    ORDER.map(k => `<div class="li" style="min-height:44px;padding:6px 0"><span class="grow small">${dotFor(k)}${esc(k === "phone" ? L_("phone") : B[k].n)}</span>${stepper("d:" + s + ":" + k, o[k], B[k].n)}</div>`).join("") + `</details>`;
+  h += `<div class="btns"><button class="btn block" data-editday="${s}">Edit all 24 hours</button></div>`;
   h += `<label class="f" for="good-${s}">One good thing</label><input type="text" id="good-${s}" data-logf="${s}|good" value="${esc(L && L.good || "")}" placeholder="e.g. First run in weeks">`;
   h += `<label class="f" for="chg-${s}">One thing to change tomorrow</label><input type="text" id="chg-${s}" data-logf="${s}|change" value="${esc(L && L.change || "")}" placeholder="e.g. Phone in the hall after 10">`;
   h += `<label class="f">Energy</label><div class="seg" role="group">${[["low", "Drained"], ["okay", "Okay"], ["high", "Full of it"]].map(([k, n]) => `<button data-energy="${s}|${k}" aria-pressed="${L && L.energy === k}">${n}</button>`).join("")}</div></div>`;
@@ -454,6 +466,26 @@ function settingsSheet() {
   });
 }
 
+function dayEditor(d) {
+  const row = k => `<div style="padding:8px 0;border-bottom:1px solid var(--line)" data-row="${k}"><div class="row"><span class="grow">${dotFor(k)}<b>${esc(k === "phone" ? L("phone") : B[k].n)}</b></span><button class="step" data-dh="${k}|-0.5" aria-label="Less ${esc(B[k].n)}">−</button><input class="valin" type="number" inputmode="decimal" min="0" max="24" step="0.5" data-dv="${k}" aria-label="${esc(B[k].n)} hours"><button class="step" data-dh="${k}|0.5" aria-label="More ${esc(B[k].n)}">+</button></div><input type="range" min="0" max="16" step="0.5" data-dr="${k}" aria-label="${esc(B[k].n)}" style="width:100%;margin-top:6px;accent-color:${B[k].c === "stripe" ? "#D2452C" : B[k].c === "#DDE0EA" || B[k].c === "#E3E6EE" || B[k].c === "#C9CEDC" ? "#8E95AB" : B[k].c}"></div>`;
+  const el = sheet(fmt(d), `<div style="position:sticky;top:44px;z-index:2;background:var(--bg);padding:4px 0 6px"><div id="de-bar"></div><p class="small" id="de-tot" style="font-weight:700;margin:8px 0 0"></p></div><p class="tiny muted" style="margin:0 0 6px">Raise an area and the hours come from “Not sure”, then ${esc(L("phone").toLowerCase())}, then rest. Lower one and they go to “Not sure”.</p>
+    <div class="card" style="padding:2px 14px"><div class="tiny muted" style="padding-top:8px;font-weight:700">Fixed</div>${["sleep", "work", "commute", "chores"].map(row).join("")}<div class="tiny muted" style="padding-top:10px;font-weight:700">Free time</div>${["family", "people", "health", "learn", "travel", "rest", "phone"].map(row).join("")}${row("other")}</div>
+    <label class="f" for="de-good">One good thing</label><input type="text" id="de-good" data-logf="${d}|good" value="${esc((S.logs[d] || {}).good || "")}">
+    <label class="f" for="de-chg">One thing to change</label><input type="text" id="de-chg" data-logf="${d}|change" value="${esc((S.logs[d] || {}).change || "")}">
+    <div class="btns"><button class="btn" data-dereset>Reset to usual</button><button class="btn primary grow" data-close>Done</button></div>`);
+  const paint = () => { const o = dayHours(d);
+    el.querySelector("#de-bar").innerHTML = dayBar(o, "This day by hour");
+    el.querySelector("#de-tot").innerHTML = `24 h placed ✓ <span class="muted" style="font-weight:400">· ${hh(free(o))} free · ${hh(o.other)} not sure</span>`;
+    ORDER.forEach(k => { const r = el.querySelector(`[data-row="${k}"]`); if (!r) return; const vi = r.querySelector("[data-dv]"), ri = r.querySelector("[data-dr]"); if (document.activeElement !== vi) vi.value = h1(o[k]); if (document.activeElement !== ri) ri.value = o[k]; if (k === "other") r.style.display = o.other > 0 ? "" : "none"; }); };
+  paint();
+  el.addEventListener("input", e => { const k = e.target.dataset.dr; if (k) { setHour(d, k, +e.target.value); paint(); } });
+  el.addEventListener("change", e => { const k = e.target.dataset.dv || e.target.dataset.dr; if (k) { setHour(d, k, +e.target.value); paint(); render(); } });
+  el.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.dh) { const [k, dv] = b.dataset.dh.split("|"); setHour(d, k, dayHours(d)[k] + +dv); paint(); render(); }
+    if (b.hasAttribute("data-dereset")) { const Lg = S.logs[d] = S.logs[d] || {}; Lg.hours = null; Lg.e = []; Lg.tags = []; Lg.at = Date.now(); save(); paint(); render(); }
+  });
+  el.addEventListener("click", e => { if (e.target === el || e.target.closest("[data-close]")) render(); });
+}
 function daySheet(d) { const el = sheet(fmt(d), logCard(d, S.logs[d], actualDay(d))); const re = () => { if (!el.isConnected) return; const dt = el.querySelector("details"), open = dt && dt.open, y = el.querySelector(".in").scrollTop; el.querySelector(".body").innerHTML = logCard(d, S.logs[d], actualDay(d)); const n = el.querySelector("details"); if (n && open) n.open = true; el.querySelector(".in").scrollTop = y; }; el.addEventListener("click", e => { if (e.target.closest("button")) setTimeout(re, 0); }); el.addEventListener("refresh", () => setTimeout(re, 0)); }
 
 /* ---------- Calendar and native reminders ---------- */
@@ -474,9 +506,10 @@ document.addEventListener("click", e => {
   if (b.dataset.tab) { tab = b.dataset.tab; closeSheets(); render(); window.scrollTo(0, 0); return; }
   if (b.dataset.gotab) { tab = b.dataset.gotab; render(); window.scrollTo(0, 0); return; }
   if (b.id === "btnSettings") return settingsSheet();
-  if (b.dataset.usual) { const d = b.dataset.usual; S.logs[d] = Object.assign(S.logs[d] || {}, { e: [], hours: null, at: Date.now() }); save(); render(); toast("Logged as a usual day"); return; }
-  if (b.dataset.chip) { const [d, i] = b.dataset.chip.split("|"); const c = CHIPS[+i]; addEntry(d, { to: c.to, from: c.from, h: c.h, l: c.l }); return; }
-  if (b.dataset.gchip) { const [d, id] = b.dataset.gchip.split("|"); const g = S.goals.find(x => x.id === id); const from = Object.keys(g.src).sort((a, c) => g.src[c] - g.src[a])[0] || "phone"; addEntry(d, { to: g.corner, from, h: 1, l: g.title }); return; }
+  if (b.dataset.usual) { const d = b.dataset.usual; S.logs[d] = Object.assign(S.logs[d] || {}, { e: [], hours: null, tags: [], at: Date.now() }); save(); render(); toast("Logged as a usual day"); return; }
+  if (b.dataset.chip) { const [d, i] = b.dataset.chip.split("|"); const c = CHIPS[+i]; setHour(d, c.to, dayHours(d)[c.to] + c.h, c.from); const Lg = S.logs[d]; Lg.tags = (Lg.tags || []).concat(c.l); save(); render(); toast("+" + hh(c.h) + " " + SHORT[c.to].toLowerCase()); return; }
+  if (b.dataset.gchip) { const [d, id] = b.dataset.gchip.split("|"); const g = S.goals.find(x => x.id === id); const from = Object.keys(g.src).sort((a, c) => g.src[c] - g.src[a])[0] || "phone"; setHour(d, g.corner, dayHours(d)[g.corner] + 1, from); const Lg = S.logs[d]; Lg.tags = (Lg.tags || []).concat(g.title); save(); render(); return; }
+  if (b.dataset.editday) return dayEditor(b.dataset.editday);
   if (b.dataset.rme) { const [d, i] = b.dataset.rme.split("|"); S.logs[d].e.splice(+i, 1); save(); render(); return; }
   if (b.dataset.step && /^[emd]:/.test(b.dataset.step)) { const [key, dv] = b.dataset.step.split("|"); setVal(key, curVal(key) + +dv); render(); return; }
   if (b.dataset.energy) { const [d, k] = b.dataset.energy.split("|"); S.logs[d] = S.logs[d] || { e: [] }; S.logs[d].energy = k; save(); render(); return; }
@@ -485,7 +518,7 @@ document.addEventListener("click", e => {
     else { p.status = st; p.doneAt = today(); if (st === "done") toast(p.moved ? "Done, a bit late. Late still counts." : "Done"); }
     save(); render(); return; }
   if (b.dataset.balance) { const d = b.dataset.balance; const o = actualDay(d), gap = 24 - sumDay(o); if (gap > 0) setVal("d:" + d + ":rest", o.rest + gap); else { let need = -gap; for (const k of ["rest", "phone", "travel", "learn", "people", "family", "health", "chores", "sleep"]) { const cur = actualDay(d)[k], t = Math.min(cur, need); if (t > 0) { setVal("d:" + d + ":" + k, cur - t); need -= t; } if (need <= 0) break; } } render(); return; }
-  if (b.dataset.logday) return daySheet(b.dataset.logday);
+  if (b.dataset.logday) return dayEditor(b.dataset.logday);
   if (b.dataset.openweek) { weekOf = b.dataset.openweek; tab = "week"; render(); window.scrollTo(0, 0); return; }
   if (b.dataset.week) { weekOf = add(weekOf, +b.dataset.week); render(); return; }
   if (b.dataset.blocker) { const R = S.retros[weekOf] = S.retros[weekOf] || {}; R.blockers = R.blockers || []; const i = R.blockers.indexOf(b.dataset.blocker); if (i >= 0) R.blockers.splice(i, 1); else R.blockers.push(b.dataset.blocker); b.setAttribute("aria-pressed", i < 0); save(); return; }
@@ -506,7 +539,7 @@ document.addEventListener("click", e => {
   if (a === "add-plan") return planSheet(b.dataset.when);
   if (a === "custom-entry") return customEntry(b.dataset.day);
   if (a === "usual-yday") { const y = add(today(), -1); S.logs[y] = { e: [], at: Date.now() }; save(); render(); return; }
-  if (a === "open-yday") return daySheet(add(today(), -1));
+  if (a === "open-yday") return dayEditor(add(today(), -1));
   if (a === "save-retro") { const R = S.retros[weekOf] = S.retros[weekOf] || {}; R.well = $("#r-well").value.trim(); R.change = $("#r-chg").value.trim(); R.at = Date.now(); save(); render(); toast("Retro saved. Add next week's plans below."); return; }
   if (a === "ics") return ics();
   if (a === "share-app") { const url = location.protocol.startsWith("http") ? location.origin + location.pathname : "https://rj8228.github.io/era/"; const text = APP + ": see where your week goes and spend it on purpose. " + url; if (window.EraNative && window.EraNative.share) window.EraNative.share(text); else if (navigator.share) navigator.share({ text }).catch(() => {}); else window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank"); return; }

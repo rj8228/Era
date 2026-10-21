@@ -11,8 +11,8 @@ android {
         applicationId = "com.raj.era"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
     }
 
     // One fixed key for every build, so each new APK installs over the last one.
