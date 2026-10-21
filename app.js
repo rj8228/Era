@@ -348,7 +348,7 @@ function renderOnb() {
   }
   $("#view").innerHTML = h + `</div>`;
 }
-function readOnb0() { const a = $("#o-age"), l = $("#o-leave"); if (a) S.me.age = a.value; if (l) S.me.leave = +l.value || 0; }
+function readOnb0() { const a = $("#o-age"), l = $("#o-leave"); if (a) S.me.age = a.value; if (l) S.me.leave = +l.value || 0; save(); }
 
 /* ---------- Sheets ---------- */
 function sheet(title, html) {
@@ -386,7 +386,7 @@ function moveSheet() {
   let saved = false, touched = false; el.addEventListener("input", () => touched = true); el.addEventListener("change", () => touched = true);
   const doSave = quiet => { const f = el.querySelector("#mv-from").value, to = el.querySelector("#mv-to").value, h = +el.querySelector("#mv-h").value || 0; if (f === to || h <= 0) { if (!quiet) toast("Pick two different areas and some hours"); return false; } S.moves.push({ id: uid(), q, from: f, to, h, note: el.querySelector("#mv-note").value.trim() }); saved = true; save(); render(); toast("Shifted " + hh(h) + " a week to " + SHORT[to]); return true; };
   el.querySelector("[data-savemove]").onclick = () => { if (doSave()) el.remove(); };
-  el.beforeClose = () => { if (!saved && touched) doSave(true); };
+  el.beforeClose = () => { if (!saved) doSave(true); };
 }
 function makeRoomSheet() {
   const t = today(); const tw = templateWeek();
@@ -563,6 +563,10 @@ document.addEventListener("change", e => {
 
 /* ---------- Boot ---------- */
 render();
-if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+// Inside the Android app the files come from the APK itself, so no offline cache is needed; an old
+// cache there would keep serving old code after an update, so remove any that exist.
+if (window.EraNative) {
+  if ("serviceWorker" in navigator) navigator.serviceWorker.getRegistrations().then(rs => { const had = rs.length || navigator.serviceWorker.controller; Promise.all(rs.map(r => r.unregister())).then(() => (window.caches ? caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))) : null)).then(() => { if (had && !sessionStorage.getItem("era-sw-cleared")) { sessionStorage.setItem("era-sw-cleared", "1"); location.reload(); } }); }).catch(() => {});
+} else if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 window.__era = { S: () => S, actualDay, plannedDay, templateWeek, range, avgWeek };
 })();

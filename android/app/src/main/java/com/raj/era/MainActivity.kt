@@ -18,7 +18,10 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.webkit.ServiceWorkerClientCompat
+import androidx.webkit.ServiceWorkerControllerCompat
 import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewFeature
 import androidx.webkit.WebViewClientCompat
 
 /**
@@ -47,6 +50,14 @@ class MainActivity : Activity() {
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
+        // Older versions registered a service worker; route its requests to the APK's files too,
+        // so it can never serve stale code after an update (the page then removes it).
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) {
+            ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(object : ServiceWorkerClientCompat() {
+                override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? =
+                    loader.shouldInterceptRequest(request.url)
+            })
+        }
         web = WebView(this)
         setContentView(web)
         web.settings.apply {
@@ -77,6 +88,10 @@ class MainActivity : Activity() {
                 return true
             }
         }
+        // A new install of the app: drop the HTTP cache so every file is read fresh (saved data is kept).
+        val prefs = getSharedPreferences("era-app", MODE_PRIVATE)
+        val ver = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        if (prefs.getString("ver", "") != ver) { web.clearCache(true); prefs.edit().putString("ver", ver).apply() }
         if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(HOME)
         Reminders.schedule(this) // keep alarms in place after updates
     }
