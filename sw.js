@@ -1,6 +1,7 @@
-/* Offline cache. Bump VERSION with every release. */
-const VERSION = "era-0.1.3";
-const SHELL = ["./", "index.html", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
+/* Offline cache, named after the version in version.js. */
+importScripts("version.js");
+const VERSION = "era-" + self.ERA_VERSION;
+const SHELL = ["./", "index.html", "app.js", "version.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", e => {

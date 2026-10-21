@@ -7,4 +7,4 @@ See where your week goes, then spend it on purpose. Describe a normal week once,
 
 Everything is stored on the phone. Backups are JSON files.
 
-The web app is `index.html` + `app.js` (bump `VERSION` in `sw.js` on each release). The Android app in `android/` wraps the same files and adds notifications; GitHub Actions builds it on every push.
+The web app is `index.html` + `app.js` (change the version in `version.js` for each release; the cache and the Android build follow it). The Android app in `android/` wraps the same files and adds notifications; GitHub Actions builds it on every push.

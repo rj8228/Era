@@ -23,7 +23,7 @@ jobs:
       - name: Copy the web app into the APK
         run: |
           mkdir -p android/app/src/main/assets/icons
-          cp index.html app.js manifest.webmanifest android/app/src/main/assets/
+          cp index.html app.js version.js manifest.webmanifest android/app/src/main/assets/
           cp icons/*.png android/app/src/main/assets/icons/
 
       - name: Build

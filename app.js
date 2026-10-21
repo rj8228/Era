@@ -449,7 +449,7 @@ function settingsSheet() {
     <h2>Names</h2><p class="small muted">Call things what you like.</p>${Object.keys(LABELS).map(k => `<label class="f" for="lbl-${k}">${esc(LABELS[k][1])}</label><input type="text" id="lbl-${k}" data-label="${k}" value="${esc(L(k))}">`).join("")}
     <h2>Share and back up</h2><div class="btns"><button class="btn sm" data-act="share-app">Share ${APP} with friends</button><button class="btn sm" data-act="export">Save a backup</button><button class="btn sm" data-act="import">Load a backup</button></div><input type="file" id="s-file" accept=".json,application/json" hidden>
     <div class="btns"><button class="btn sm warn" data-act="reset">Start over</button></div>
-    <p class="foot">${APP} v0.1 · everything stays on this phone.</p>`);
+    <p class="foot">${APP} v${esc(self.ERA_VERSION || "")} · everything stays on this phone.</p>`);
   const links = () => { const a = el.querySelector("#g-d"), b = el.querySelector("#g-w"); if (a) a.href = gcal(APP + ": daily retro", nextAt(S.remind.daily), "RRULE:FREQ=DAILY"); if (b) b.href = gcal(APP + ": weekly retro", nextAt(S.remind.weekly, 0), "RRULE:FREQ=WEEKLY"); };
   links();
   el.addEventListener("change", e => { const t = e.target;
