@@ -20,19 +20,22 @@ android {
     }
 
     // One fixed key for every build, so each new APK installs over the last one.
+    // The key is never in this repo: CI writes it from secrets (backup in the private rj8228/signing-keys repo).
+    // Without ERA_KEYSTORE the release build comes out unsigned.
+    val keystore = System.getenv("ERA_KEYSTORE")
     signingConfigs {
-        create("era") {
-            storeFile = file("era.jks")
-            storePassword = "erakeys1"
+        if (keystore != null) create("era") {
+            storeFile = file(keystore)
+            storePassword = System.getenv("ERA_KEYSTORE_PASSWORD")
             keyAlias = "era"
-            keyPassword = "erakeys1"
+            keyPassword = System.getenv("ERA_KEY_PASSWORD")
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("era")
+            if (keystore != null) signingConfig = signingConfigs.getByName("era")
         }
     }
 
