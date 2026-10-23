@@ -1,16 +1,44 @@
-name: Build APK
+name: Test and build APK
 
-# Every push builds the Android app from the same web files and publishes it as the "latest" release.
+# Every push and pull request runs the end-to-end tests of every journey in a real browser.
+# Pushes to main then build the Android app from the same web files and publish it as the "latest" release.
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install the test browser
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.0
+          npx playwright install --with-deps chromium
+      - name: Run every journey end to end
+        run: |
+          python3 -m http.server 8777 >/dev/null 2>&1 &
+          sleep 1
+          ERA_SHOTS=test-failures node tests/e2e.js
+      - name: Keep screenshots of failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-failures
+          path: test-failures
+          if-no-files-found: ignore
+
   build:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,8 +50,9 @@ jobs:
 
       - name: Copy the web app into the APK
         run: |
-          mkdir -p android/app/src/main/assets/icons
-          cp index.html app.js version.js manifest.webmanifest android/app/src/main/assets/
+          mkdir -p android/app/src/main/assets/icons android/app/src/main/assets/js
+          cp index.html version.js manifest.webmanifest android/app/src/main/assets/
+          cp js/*.js android/app/src/main/assets/js/
           cp icons/*.png android/app/src/main/assets/icons/
 
       - name: Write the signing key from secrets

@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">Era</string>
+    <string name="w_free">Era: free today</string>
+    <string name="w_dial">Era: today\'s dial</string>
+    <string name="w_weekends">Era: weekends left</string>
+    <string name="w_free_desc">Free hours today, and a Looks right button to log a normal day</string>
+    <string name="w_dial_desc">Today as a 24-hour dial</string>
+    <string name="w_weekends_desc">Weekends left this year, and the next one you claimed</string>
 </resources>
