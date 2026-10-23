@@ -1,10 +1,26 @@
 # Era
 
-See where your week goes, then spend it on purpose. Describe a normal week once, see your free hours as a shape, shift hours between areas, lock in for big goals, and keep it honest with a 30-second daily recap, a weekly vibe check and a retro for every era (quarter).
+See where your week goes, then spend your free hours on purpose. Each day is a 24-hour dial, filled from your normal week and (on Android) your real screen time. Your free hours make a shape with one corner per area you want more of; what you want less of sits apart in red, where smaller is the win. A 30-second nightly recap (swipe to confirm), a weekly vibe check and a retro for every era (quarter) keep it honest.
 
 - **Use it:** https://rj8228.github.io/Era/ — on iPhone, Safari → Share → Add to Home Screen; on Android, Chrome → Add to Home screen.
-- **Android app with reminders:** download `Era.apk` from the [latest release](https://github.com/rj8228/Era/releases/tag/latest).
+- **Android app** (reminders with a “Looks right” button, screen time, home-screen widgets): download `Era.apk` from the [latest release](https://github.com/rj8228/Era/releases/tag/latest).
 
-Everything is stored on the phone. Backups are JSON files.
+Everything is stored on the phone. Backups are JSON files. Data from Era 0.1 moves over on first open (the old copy is kept).
 
-The web app is `index.html` + `app.js` (change the version in `version.js` for each release; the cache and the Android build follow it). The Android app in `android/` wraps the same files and adds notifications; GitHub Actions builds it on every push.
+## Code
+
+- `index.html` — page and styles. `version.js` — the one place the version lives (the offline cache and the Android build follow it).
+- `js/model.js` — categories, dates, saved state, the move from 0.1, and the numbers. `js/draw.js` — dial, shape, bead jars, weekend dots, paint grid. `js/screens.js` — every screen. `js/app.js` — navigation, actions, gestures and the Android bridge.
+- `android/` wraps the same files in a WebView and adds notifications, screen time (`ScreenTime.kt`), widgets (`EraWidgets.kt`).
+
+## Tests
+
+`tests/e2e.js` walks through every journey on the Era Screens page in a real browser (first run, logging a day, two things at once, too much red, catch up, vibe check, observe → decide → shift, beads, lock in, weekends, era retro, Me, rough week, screen time, widgets and notifications, and the move from 0.1), with the Android bridge stubbed.
+
+```
+python3 -m http.server 8777 &
+npm install --no-save playwright@1.56.0 && npx playwright install chromium
+node tests/e2e.js
+```
+
+GitHub Actions runs them on every push and pull request; the APK is only built and published when they all pass. The signing key lives in Actions secrets (backup in a private repo), so every build installs as an update.

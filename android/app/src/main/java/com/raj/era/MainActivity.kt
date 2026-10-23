@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.provider.Settings
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -26,8 +27,8 @@ import androidx.webkit.WebViewClientCompat
 
 /**
  * Era on Android: the same web app, served offline from the APK's assets on a virtual https origin
- * (so localStorage works), plus a small bridge for things a web page can't do well here:
- * daily and weekly retro notifications, sharing, and saving a backup file.
+ * (so localStorage works), plus a small bridge for things a web page can't do here: notifications
+ * (with a "Looks right" button), screen time, home-screen widgets, sharing and saving a backup file.
  */
 class MainActivity : Activity() {
 
@@ -92,8 +93,31 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences("era-app", MODE_PRIVATE)
         val ver = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         if (prefs.getString("ver", "") != ver) { web.clearCache(true); prefs.edit().putString("ver", ver).apply() }
+        handleOpen(intent)
         if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(HOME)
         Reminders.schedule(this) // keep alarms in place after updates
+    }
+
+    /** Notifications and widgets open the app with "open" = check / today / week / era. */
+    private fun handleOpen(i: Intent?) {
+        val what = i?.getStringExtra("open")
+        if (!what.isNullOrEmpty()) { Store.setOpen(this, what); i?.removeExtra("open") }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOpen(intent)
+        resumePage()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumePage()
+    }
+
+    private fun resumePage() {
+        if (::web.isInitialized) web.evaluateJavascript("window.eraResume && window.eraResume()", null)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -113,10 +137,8 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        web.evaluateJavascript("(function(){var s=document.querySelector('.sheet:last-child');if(s){s.remove();return 'closed';}return 'none';})()") { r ->
-            if (r?.contains("closed") != true) {
-                if (web.canGoBack()) web.goBack() else finish()
-            }
+        web.evaluateJavascript("(window.eraBack ? window.eraBack() : 'none')") { r ->
+            if (r?.contains("closed") != true) finish()
         }
     }
 
@@ -138,6 +160,40 @@ class MainActivity : Activity() {
                 }
                 Reminders.schedule(this@MainActivity)
             }
+        }
+
+        /** "granted" once Usage access is on for Era. */
+        @JavascriptInterface
+        fun stStatus(): String = if (ScreenTime.granted(this@MainActivity)) "granted" else "denied"
+
+        /** Opens Android's Usage access settings. */
+        @JavascriptInterface
+        fun stOpen() {
+            runOnUiThread {
+                try { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).setData(Uri.parse("package:$packageName"))) }
+                catch (e: Exception) {
+                    try { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+                    catch (e2: Exception) { Toast.makeText(this@MainActivity, "Open Settings → Apps → Special access → Usage access", Toast.LENGTH_LONG).show() }
+                }
+            }
+        }
+
+        /** Minutes per app and per half hour for a yyyy-mm-dd day. */
+        @JavascriptInterface
+        fun stDay(day: String): String = runCatching { ScreenTime.day(this@MainActivity, day) }.getOrElse { "{\"apps\":[],\"slots\":{}}" }
+
+        /** Taps on notification and widget buttons since the app last ran. */
+        @JavascriptInterface
+        fun takePending(): String = Store.takePending(this@MainActivity)
+
+        @JavascriptInterface
+        fun takeOpen(): String = Store.takeOpen(this@MainActivity)
+
+        /** What the home-screen widgets show. */
+        @JavascriptInterface
+        fun setWidget(json: String) {
+            Store.setWidget(this@MainActivity, json)
+            EraWidgets.updateAll(this@MainActivity)
         }
 
         @JavascriptInterface

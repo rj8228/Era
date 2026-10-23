@@ -6,3 +6,5 @@ android/local.properties
 *.iml
 .idea/
 *.jks
+node_modules/
+test-failures/
