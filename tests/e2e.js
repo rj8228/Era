@@ -324,6 +324,21 @@ const NATIVE_STUB = () => {
   await p.click(`[data-act=quest][data-arg="${qg.id}|done"]`); s = await S(p); ok(s.quests.find(x => x.id === qg.id).status === 'done', 'done');
   await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Call Nani'); await p.click('.sheet [data-qw=era]'); await p.click('.sheet [data-close]');
   s = await S(p); ok(s.quests.some(x => x.title === 'Call Nani' && x.when === 'era'), 'closing the sheet saves a quest with a title');
+  // any side quest can take a weekend or a date, and can be edited later
+  await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Lonavala drive'); await p.click('.sheet [data-qw=weekend]'); await p.click('.sheet [data-qs="2026-11-21"]'); await p.click('.sheet [data-qsave]');
+  s = await S(p); ok(s.quests.some(x => x.title === 'Lonavala drive' && x.date === '2026-11-21'), 'any side quest can claim a weekend');
+  await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Dentist'); await p.click('.sheet [data-qw=day]'); await p.fill('#q-day', '2026-11-11'); await p.click('.sheet [data-qsave]');
+  s = await S(p); const den = s.quests.find(x => x.title === 'Dentist'); ok(den && den.day === '2026-11-11' && !den.date, 'or a date');
+  await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Picnic'); await p.click('.sheet [data-qw=day]'); await p.fill('#q-day', '2026-11-29'); await p.click('.sheet [data-qsave]');
+  s = await S(p); ok(s.quests.find(x => x.title === 'Picnic').date === '2026-11-28', 'a Sunday claims its weekend');
+  const nani = s.quests.find(x => x.title === 'Call Nani');
+  await p.click(`[data-act=quest-edit][data-arg="${nani.id}"]`); await p.click('.sheet [data-qw=weekend]'); await p.click('.sheet [data-qs="2026-11-21"]');
+  ok((await p.textContent('.toast')).includes('Already planned'), 'a planned weekend cannot be taken twice');
+  await p.click('.sheet [data-qs="2026-12-05"]'); await p.click('.sheet [data-qsave]');
+  s = await S(p); const n2 = s.quests.find(x => x.id === nani.id); ok(n2.date === '2026-12-05' && n2.title === 'Call Nani' && s.quests.filter(x => x.title === 'Call Nani').length === 1, 'edit a side quest to link it to a weekend');
+  await p.click('[data-tab=today]');
+  ok((await p.textContent('.stats .stat:nth-child(2)')).includes('3') && (await p.textContent('.stats')).includes('free weekends left this era'), 'free weekends this era go down as you plan them (8 left, 5 planned)');
+  await p.click('[data-tab=era]'); ok((await text(p)).includes('8 weekends left · 5 planned'), 'Era shows weekends planned');
 
   /* ---------------- 8 · Era retro ---------------- */
   section = '8 Era retro';
