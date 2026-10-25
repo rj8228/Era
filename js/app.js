@@ -10,8 +10,8 @@ function toast(m) { document.querySelectorAll(".toast").forEach(x => x.remove())
 let NAV = [];
 let prevOpen = S.lastOpen;
 const SETUP = new Set(["intro", "s_areas", "s_less", "s_push", "s_map", "s_paint", "s_st", "s_shape"]);
-const TABS = ["today", "week", "era", "me"];
-const FULL = new Set(["fill", "swipe", "dial", "lock1", "lock2", "lock3", "decide1", "decide2", "receipt", "vibe", "nextweek", "catchup"]);
+const TABS = ["today", "week", "choose", "era", "me"];
+const FULL = new Set(["ch_size", "ch_score", "ch_sort", "ch_commit", "ch_dec1", "ch_dec2", "ch_dec3", "ch_dec4", "ch_decreview", "ch_review", "ch_own", "fill", "swipe", "dial", "lock1", "lock2", "lock3", "decide1", "decide2", "receipt", "vibe", "nextweek", "catchup"]);
 const FLOWS = [
   { pages: ["fill", "swipe", "dial"], dirty: () => draft && draft.dirty, title: "Save this day?", body: () => "You changed " + (draft ? fmtD(draft.d) : "this day") + ".", save: () => commitDraft(), drop: () => { draft = null; } },
   { pages: ["beads"], dirty: () => beadDraft && beadDraft.length, title: "Save this change?", body: () => beadDraft.map(m => cname(m.from) + " → " + cname(m.to)).join(", ") + ".", save: () => saveBeads(), drop: () => { beadDraft = null; beadSel = null; beadNote = ""; } },
@@ -221,7 +221,7 @@ function renameSheet() {
 /* ---------- Actions (data-act) ---------- */
 const ACT = {
   back: () => back(), home: () => home(), tab: t => tabTo(t),
-  go: (p, el) => { const a = {}; if (["receipt", "observe"].includes(p) && NAV[0].p === "today") weekOf = mondayOf(today()); if (el.dataset.d) a.d = el.dataset.d; if (el.dataset.q) a.q = el.dataset.q; if (p === "fill" || p === "dial") a.d = a.d || today(); if ((p === "fill" || p === "dial") && draft && draft.d !== a.d && !draft.dirty) draft = null; go(p, a); },
+  go: (p, el) => { const a = {}; if (el.dataset.id) a.id = el.dataset.id; if (["receipt", "observe"].includes(p) && NAV[0].p === "today") weekOf = mondayOf(today()); if (el.dataset.d) a.d = el.dataset.d; if (el.dataset.q) a.q = el.dataset.q; if (p === "fill" || p === "dial") a.d = a.d || today(); if ((p === "fill" || p === "dial") && draft && draft.d !== a.d && !draft.dirty) draft = null; go(p, a); },
   next: p => { if (top_().p === "s_areas" && S.areas.length < 3) { toast("Pick at least 3"); return; } if (top_().p === "s_shape") return; go(p); },
   // first run and Me
   area: k => { const i = S.areas.indexOf(k); if (i >= 0) { if (S.areas.length <= 3) { toast("Keep at least 3 corners"); return; } S.areas.splice(i, 1); } else { if (S.areas.length >= 7) { toast("Up to 7 corners"); return; } S.areas.push(k); } save(); rerender(); },
@@ -330,7 +330,8 @@ const IN = {
   "rem-weekly": v => { S.remind.weekly = v || "19:00"; save(); nativeSync(); },
   label: (v, el) => { const k = el.dataset.k; if (v.trim()) S.labels[k] = v.trim(); else delete S.labels[k]; save(); }
 };
-const LIVE_IN = new Set(["good", "dec-identity", "dec-stack", "dec-tiny", "bead-note", "g-title", "g-why"]);
+const LIVE_IN = new Set(["good", "dec-identity", "dec-stack", "dec-tiny", "bead-note", "g-title", "g-why"].concat(CH_LIVE));
+Object.assign(ACT, CH_ACT); Object.assign(IN, CH_IN);
 
 document.addEventListener("click", e => {
   if (e.target.closest(".sheet")) return;
@@ -388,6 +389,7 @@ const jarsAfter = mode => () => {
     else { const g = goalDraft; if (k === g.area) return; if (j.classList.contains("locked")) { toast(cname(k) + " is a non-negotiable"); return; } ACT["g-src"](k + "|+"); } });
 };
 AFTER.beads = jarsAfter("beads"); AFTER.lock2 = jarsAfter("lock");
+Object.assign(AFTER, CH_AFTER);
 
 /* ---------- Calendar file for browsers ---------- */
 function nextAt(hmS, dw) { const [H, M] = hmS.split(":").map(Number); const d = new Date(); d.setHours(H, M, 0, 0); if (dw !== undefined) { while (d.getDay() !== dw || d < new Date()) d.setDate(d.getDate() + 1); } else if (d < new Date()) d.setDate(d.getDate() + 1); return d; }
@@ -404,6 +406,11 @@ function scheduleNative() {
   const once = [];
   const q = curQ(); once.push({ id: "era-" + q, at: qEnd(q) + " 19:00", title: "‘" + (eraName(q) || "This era") + "’ ends today", text: "Look back at it and name the next one" });
   S.goals.filter(g => !g.closed).forEach(g => once.push({ id: "goal-" + g.id, at: addD(g.end, 1) + " 09:00", title: L("lockin") + " done: " + g.title, text: "You said it was worth it because…" }));
+  if (S.choose && S.choose.setup) {
+    const t = today(), first = (t.slice(8) === "01" ? t : ymd(new Date(+t.slice(0, 4), +t.slice(5, 7), 1)));
+    if (S.choose.things.some(x => x.status === "now")) once.push({ id: "choose-" + first.slice(0, 7), at: first + " 10:00", title: "Choose: monthly check, 5 min", text: "How did last month go for your things?" });
+    S.choose.decisions.filter(dc => dc.chosen && dc.review && !dc.outcome).forEach(dc => once.push({ id: "dec-" + dc.id, at: dc.review + " 10:00", title: "Decision check: " + (dc.q || "your decision"), text: "Still the right call?" }));
+  }
   try { N.schedule(JSON.stringify({ on: S.remind.on, daily: S.remind.daily, weekly: S.remind.weekly, weeklyDow: S.remind.weeklyDow || 0, app: APPNAME, weeklyTitle: L("week") + ", 3 minutes", once })); } catch (e) {}
 }
 let widgetTimer = null;
@@ -421,7 +428,7 @@ function applyPending() {
   try { list = JSON.parse(N.takePending() || "[]"); } catch (e) {}
   let n = 0; list.forEach(x => { if (x.t === "confirm" && x.d && !logged(x.d)) { logUsual(x.d); n++; } });
   let open = ""; try { open = N.takeOpen ? N.takeOpen() || "" : ""; } catch (e) {}
-  if (open && S.onboarded) { draft = null; NAV = open === "check" ? [{ p: "today" }, { p: "fill", d: today() }] : open === "era" ? [{ p: "era" }, { p: "horizon" }] : open === "week" ? [{ p: "week" }] : [{ p: "today" }]; }
+  if (open && S.onboarded) { draft = null; NAV = open === "check" ? [{ p: "today" }, { p: "fill", d: today() }] : open === "era" ? [{ p: "era" }, { p: "horizon" }] : open === "week" ? [{ p: "week" }] : open === "choose" ? [{ p: "choose" }] : [{ p: "today" }]; }
   return n > 0 || !!open;
 }
 function onResume() {
@@ -441,4 +448,4 @@ if (S.onboarded) { if (S.lastOpen !== today()) { S.lastOpen = today(); save(); }
 if (NATIVE()) {
   if ("serviceWorker" in navigator) navigator.serviceWorker.getRegistrations().then(rs => { const had = rs.length || navigator.serviceWorker.controller; Promise.all(rs.map(r => r.unregister())).then(() => (window.caches ? caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))) : null)).then(() => { if (had && !sessionStorage.getItem("era-sw-cleared")) { sessionStorage.setItem("era-sw-cleared", "1"); location.reload(); } }); }).catch(() => {});
 } else if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
-window.__era = { S: () => S, NAV: () => NAV, draft: () => draft, autoFill, dayBlocks, lessNow, reclaimed, planWeek, tmplWeek, actualRange };
+window.__era = { score, weekly, totals, suggestSet, movable, S: () => S, NAV: () => NAV, draft: () => draft, autoFill, dayBlocks, lessNow, reclaimed, planWeek, tmplWeek, actualRange };
