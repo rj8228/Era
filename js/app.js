@@ -83,7 +83,7 @@ function commitDraft() {
   S.logs[d] = Object.assign({}, S.logs[d] || {}, { blocks: draft.blocks.map(b => { const x = { ...b }; delete x.check; return x; }), src: draft.dirty ? "edited" : "auto", at: Date.now(), good: draft.good || "", energy: draft.energy || null });
   draft = null; save(); toast("Day saved");
 }
-function logUsual(d) { S.logs[d] = Object.assign({}, S.logs[d] || {}, { blocks: autoFill(d).map(b => { const x = { ...b }; delete x.check; return x; }), src: "auto", at: Date.now() }); save(); }
+function logUsual(d) { if (awayOn(d)) return; S.logs[d] = Object.assign({}, S.logs[d] || {}, { blocks: autoFill(d).map(b => { const x = { ...b }; delete x.check; return x; }), src: "auto", at: Date.now() }); save(); }
 
 /* What a pick of activity, category and company counts as. */
 function countFor(k, w) {
@@ -182,57 +182,109 @@ function ownSheet(kind) {
     save(); el.remove(); rerender(); };
   el.querySelector("[data-ok]").onclick = ok; el.querySelector("#own-n").addEventListener("keydown", e => { if (e.key === "Enter") ok(); }); setTimeout(() => el.querySelector("#own-n").focus(), 50);
 }
-/* Add or edit a side quest. When: this week, next week, this month, this era, a weekend, or a date.
-   A date on a Saturday or Sunday claims that weekend. */
+/* Add or edit a side quest. When: this week, next week, this month, this era, a weekend or dates.
+   A weekend has four slots: Saturday and Sunday, each with a first half (morning) and a second half
+   (afternoon and evening); each slot holds one plan. Dates are one day (whole or a half) or first to
+   last day. A trip takes whole days, pauses logging on them and asks about your energy afterwards. */
+const SIDES = [["sat", "Saturday"], ["sun", "Sunday"], ["both", "Both days"]];
+const PARTS = [["", "Whole day"], ["am", "First half"], ["pm", "Second half"]];
+const sideDays = (sat, side) => side === "sat" ? [sat] : side === "sun" ? [addD(sat, 1)] : [sat, addD(sat, 1)];
+const isWkDay = d => [0, 6].includes(dowOf(d));
+const short = t => t.length > 14 ? t.slice(0, 13) + "…" : t;
 function questSheet(o) {
   o = o || {}; const ed = o.edit ? S.quests.find(x => x.id === o.edit) : null, single = L("quests").toLowerCase().replace(/s$/, "");
-  let title = ed ? ed.title : (o.title || ""), area = ed ? ed.area : (S.areas.includes("trips") && o.date ? "trips" : S.areas[0]);
-  let when = ed ? (ed.day && !ed.date ? "day" : ed.date ? (ed.day ? "day" : "weekend") : ed.when) : o.date ? "weekend" : (o.when || "week");
-  let sat = ed ? ed.date : o.date || null, day = ed ? ed.day || "" : "";
-  const sats = () => { const list = weekendsFrom(today(), addD(today(), 120)); if (sat && !list.includes(sat)) list.unshift(sat); return list.slice(0, 16); };
-  const opts = () => (o.week ? [["week", "Week of " + fmtS(o.week)]] : [["week", "This week"], ["next", "Next week"]]).concat([["month", "This month"], ["era", "This era"], ["weekend", "A weekend"], ["day", "A date"]]);
-  const body = () => `<label class="f" for="q-title">What</label><input type="text" id="q-title" placeholder="${when === "weekend" ? "Gokarna long weekend" : "Dinner with Rohan"}" value="${esc(title)}">
+  let title = ed ? ed.title : (o.title || ""), area = ed ? ed.area : (S.areas.includes("trips") && o.date && !o.side ? "trips" : S.areas[0]);
+  let when = o.when || "week", sat = null, side = "both", part = ed ? ed.part || "" : o.part || "", day = "", to = "", away = ed && ed.away != null ? !!ed.away : null;
+  const r = ed ? qSpan(ed) : null;
+  if (ed && r) { const d0 = dowOf(r[0]);
+    if ((d0 === 6 && (r[1] === r[0] || r[1] === addD(r[0], 1))) || (d0 === 0 && r[1] === r[0])) { when = "weekend"; sat = d0 === 6 ? r[0] : addD(r[0], -1); side = r[1] !== r[0] ? "both" : d0 === 6 ? "sat" : "sun"; }
+    else { when = "day"; day = r[0]; to = r[1] > r[0] ? r[1] : ""; } }
+  else if (ed) when = ed.when;
+  else if (o.date) { when = "weekend"; sat = o.date; side = o.side || "both"; }
+  // What's free on a weekend day, leaving out the quest being edited: "all", "am", "pm" or "".
+  const freeOn = d => { const [a, p] = dayPlans(d, ed); return !a && !p ? "all" : !a ? "am" : !p ? "pm" : ""; };
+  const slotsTaken = (days, pt) => days.filter(isWkDay).map(d => (pt ? [pt] : ["am", "pm"]).map(h => onSlot(d, h, ed)).find(Boolean)).find(Boolean) || null;
+  const oneDay = () => when === "weekend" ? (sat && side !== "both" ? sideDays(sat, side)[0] : null) : when === "day" && day && (!to || to === day) ? day : null;
+  const isTrip = () => !part && (away != null ? away : area === "trips");
+  const sats = () => { const list = weekendsFrom(today(), addD(today(), 120)).filter(x => addD(x, 1) >= today()); if (sat && !list.includes(sat)) list.unshift(sat); return list.slice(0, 16); };
+  const opts = () => (o.week ? [["week", "Week of " + fmtS(o.week)]] : [["week", "This week"], ["next", "Next week"]]).concat([["month", "This month"], ["era", "This era"], ["weekend", "A weekend"], ["day", "Dates"]]);
+  const wkChip = s => { const f = [freeOn(s), freeOn(addD(s, 1))], full = !f[0] && !f[1];
+    const lab = fmtS(s) + (f[0] === "all" && f[1] === "all" ? "" : full ? " · " + short(dayPlans(s, ed)[0].title) : " · " + [["Sat", f[0]], ["Sun", f[1]]].filter(z => z[1]).map(([n, x]) => n + (x === "am" ? " 1st half" : x === "pm" ? " 2nd half" : "") + " free").join(", "));
+    return `<button class="chip${full ? " taken" : ""}" data-qs="${s}" aria-pressed="${sat === s}">${esc(lab)}</button>`; };
+  const partSeg = d => `<div class="seg" role="group" aria-label="Which part of the day" style="margin-top:8px">${PARTS.map(([k, n]) => `<button data-qpart="${k}" aria-pressed="${part === k}"${isWkDay(d) && slotsTaken([d], k) ? ` class="busy"` : ""}>${n}</button>`).join("")}</div>`;
+  const body = () => `<label class="f" for="q-title">What</label><input type="text" id="q-title" placeholder="${when === "weekend" || when === "day" ? "Gokarna long weekend" : "Dinner with Rohan"}" value="${esc(title)}">
     <label class="f">Area</label><div class="chips">${S.areas.map(k => `<button class="chip" data-qa="${k}" aria-pressed="${area === k}" style="--cc:${ccol(k)}">${esc(cname(k))}</button>`).join("")}</div>
     <label class="f">When</label><div class="chips" role="group">${opts().map(([k, n]) => `<button class="chip" data-qw="${k}" aria-pressed="${when === k}">${n}</button>`).join("")}</div>
-    ${when === "weekend" ? `<div class="chips" style="margin-top:10px">${sats().map(s => { const c = claimOf(s), mine = ed && c && c.id === ed.id; return `<button class="chip${c && !mine ? " taken" : ""}" data-qs="${s}" aria-pressed="${sat === s}">${fmtS(s)}${c && !mine ? " · " + esc(c.title.length > 14 ? c.title.slice(0, 13) + "…" : c.title) : ""}</button>`; }).join("")}</div>` : ""}
-    ${when === "day" ? `<input type="date" id="q-day" value="${day}" min="${today()}" style="margin-top:10px" aria-label="Date"><p class="tiny muted" style="margin:4px 0 0">A Saturday or Sunday claims that weekend.</p>` : ""}
+    ${when === "weekend" ? `<div class="chips" style="margin-top:10px">${sats().map(wkChip).join("")}</div>
+      ${sat ? `<div class="seg" role="group" aria-label="Which days" style="margin-top:10px">${SIDES.map(([k, n]) => `<button data-qside="${k}" aria-pressed="${side === k}"${(k === "both" ? slotsTaken(sideDays(sat, k), "") : !freeOn(sideDays(sat, k)[0])) ? ` class="busy"` : ""}>${n}</button>`).join("")}</div>` : ""}` : ""}
+    ${when === "day" ? `<div class="dates"><label><span class="tiny muted">First day</span><input type="date" id="q-day" value="${day}"></label><label><span class="tiny muted">Last day (if more than one)</span><input type="date" id="q-to" value="${to}"${day ? ` min="${day}"` : ""}></label></div>` : ""}
+    ${oneDay() ? partSeg(oneDay()) : ""}
+    ${(when === "weekend" || when === "day") && !part ? `<button class="toggle" data-qaway aria-pressed="${isTrip()}"><span class="grow"><b>🧳 It's a trip</b><br><span class="tiny muted">Nothing to log on these days, and they don't count in your numbers. One energy check when you're back.</span></span><i class="tg"></i></button>` : ""}
     <div class="btns">${ed ? `<button class="btn warn" data-qdel>Delete</button>` : ""}<button class="btn primary grow" data-qsave>Save ${esc(single)}</button></div>`;
   let saved = false;
-  const el = sheet(ed ? "Edit " + single : o.date ? "Claim " + fmtS(o.date) : "New " + single, body(), () => { if (!saved && !ed && el.querySelector("#q-title").value.trim()) doSave(); });
-  const keep = () => { const ti = el.querySelector("#q-title"); if (ti) title = ti.value; const di = el.querySelector("#q-day"); if (di) day = di.value; };
-  const re = () => { keep(); el.querySelector(".body").innerHTML = body(); };
+  const el = sheet(ed ? "Edit " + single : o.date ? "Plan the weekend of " + fmtS(o.date) : "New " + single, body(), () => { if (!saved && !ed && el.querySelector("#q-title").value.trim()) doSave(); });
+  const keep = () => { const ti = el.querySelector("#q-title"); if (ti) title = ti.value; const di = el.querySelector("#q-day"); if (di) day = di.value; const tI = el.querySelector("#q-to"); if (tI) to = tI.value; };
+  const re = () => { keep(); if (!oneDay()) part = ""; el.querySelector(".body").innerHTML = body(); };
   const doSave = () => {
-    keep(); title = title.trim(); if (!title) { toast("Write what it is"); return false; }
-    let w = when, date = null, d = null;
-    if (w === "weekend") { if (!sat) { toast("Pick a weekend"); return false; } date = sat; }
-    if (w === "day") { if (!day) { toast("Pick a date"); return false; } d = day; const dw = dowOf(day); if (dw === 6 || dw === 0) date = dw === 6 ? day : addD(day, -1); }
-    if (date) { const c = claimOf(date); if (c && (!ed || c.id !== ed.id)) { toast(fmtS(date) + " is already: " + c.title); return false; } }
-    const t = today(), mon = mondayOf(t), wk = o.week && w === "week" ? o.week : w === "next" ? addD(mon, 7) : mon;
-    const f = { title, area, when: w === "next" ? "week" : w === "day" && date ? "weekend" : w, week: (w === "week" || w === "next") ? wk : null, month: t.slice(0, 7), q: qOf(d || date || wk), date, day: d };
+    keep(); if (!oneDay()) part = ""; title = title.trim(); if (!title) { toast("Write what it is"); return false; }
+    const t = today(), mon = mondayOf(t); let days = null, f;
+    if (when === "weekend") { if (!sat) { toast("Pick a weekend"); return false; } days = sideDays(sat, side); }
+    if (when === "day") { if (!day) { toast("Pick a date"); return false; } if (to && to < day) { toast("The last day is before the first"); return false; }
+      days = []; eachDay(day, to || day, d => days.push(d)); if (days.length > 60) { toast("Up to 60 days"); return false; } }
+    if (days) {
+      const hit = days.filter(isWkDay).map(d => [d, (part ? [part] : ["am", "pm"]).map(h => onSlot(d, h, ed)).find(Boolean)]).find(z => z[1]);
+      if (hit) { toast(fmtD(hit[0]) + " is already: " + hit[1].title); return false; }
+      const a = days[0], b = days[days.length - 1];
+      f = { title, area, when: "date", week: null, month: t.slice(0, 7), q: qOf(a), day: a, to: b > a ? b : null, part: part || null, date: days.find(d => dowOf(d) === 6) || (dowOf(a) === 0 ? addD(a, -1) : null), away: isTrip() };
+    } else { const wk = o.week && when === "week" ? o.week : when === "next" ? addD(mon, 7) : mon;
+      f = { title, area, when: when === "next" ? "week" : when, week: (when === "week" || when === "next") ? wk : null, month: t.slice(0, 7), q: qOf(when === "week" || when === "next" ? wk : t), day: null, to: null, part: null, date: null, away: null }; }
     if (ed) Object.assign(ed, f); else S.quests.push(Object.assign({ id: uid() }, f, { status: "open", moved: 0, created: t }));
-    saved = true; save(); el.remove(); rerender(); toast((ed ? "Updated " : "Saved ") + title + (date ? " · weekend of " + fmtS(date) : d ? " · " + fmtD(d) : "")); return true;
+    saved = true; save(); nativeSync(); el.remove(); rerender(); toast((ed ? "Updated " : "Saved ") + title + (days ? " · " + spanLabel(f, true) + (f.away ? " · trip" : "") : "")); return true;
   };
   el.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.qa) { area = b.dataset.qa; re(); }
     if (b.dataset.qw) { when = b.dataset.qw; re(); }
-    if (b.dataset.qs) { const c = claimOf(b.dataset.qs); if (c && (!ed || c.id !== ed.id)) { toast("Already planned: " + c.title); return; } sat = b.dataset.qs; re(); }
+    if (b.dataset.qs) { const s = b.dataset.qs, f = [freeOn(s), freeOn(addD(s, 1))]; if (!f[0] && !f[1]) { toast("Already planned: " + dayPlans(s, ed)[0].title); return; }
+      sat = s; if (f[0] !== "all" || f[1] !== "all") { if (f[0] === "all") { side = "sat"; part = ""; } else if (f[1] === "all") { side = "sun"; part = ""; } else { side = f[0] ? "sat" : "sun"; part = f[0] || f[1]; } } re(); }
+    if (b.dataset.qside) { const k = b.dataset.qside, d = sideDays(sat, k);
+      if (k === "both") { const c = slotsTaken(d, ""); if (c) { toast("Already planned: " + c.title); return; } part = ""; }
+      else { const f = freeOn(d[0]); if (!f) { toast("Already planned: " + dayPlans(d[0], ed)[0].title); return; } if (f !== "all") part = f; }
+      side = k; re(); }
+    if (b.dataset.qpart !== undefined) { const k = b.dataset.qpart, d = oneDay(), c = d && isWkDay(d) ? slotsTaken([d], k) : null; if (c) { toast("Already planned: " + c.title); return; } part = k; re(); }
+    if (b.hasAttribute("data-qaway")) { away = !isTrip(); re(); }
     if (b.hasAttribute("data-qsave")) doSave();
-    if (b.hasAttribute("data-qdel")) { S.quests = S.quests.filter(x => x !== ed); saved = true; save(); el.remove(); rerender(); toast("Deleted " + ed.title); } });
+    if (b.hasAttribute("data-qdel")) { S.quests = S.quests.filter(x => x !== ed); saved = true; save(); nativeSync(); el.remove(); rerender(); toast("Deleted " + ed.title); } });
+  el.addEventListener("change", e => { if (e.target.id === "q-day" || e.target.id === "q-to") re(); });
 }
+/* Tap a weekend dot: plan it, or see what's on it. */
 function satSheet(sat) {
-  const c = claimOf(sat); if (!c) return questSheet({ date: sat });
-  const el = sheet(fmtS(sat) + " · " + c.title, `<p class="tiny muted">${esc(cname(c.area))}${c.status === "done" ? " · done" : ""}</p><div class="btns col">${c.status === "open" ? `<button class="btn primary block" data-s="done">Done</button><button class="btn block" data-s="moved">Move to the next free weekend</button>` : ""}<button class="btn block warn" data-s="dropped">Drop it</button></div>`);
-  el.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { questAct(c.id, b.dataset.s); el.remove(); });
+  const days = [sat, addD(sat, 1)], plans = days.map(d => dayPlans(d)), list = [...new Set(plans.flat().filter(Boolean))];
+  if (!list.length) return questSheet({ date: sat });
+  const frees = []; days.forEach((d, i) => { const [a, p] = plans[i], n = i ? "Sunday" : "Saturday", side = i ? "sun" : "sat";
+    if (!a && !p) frees.push([n, side, ""]); else if (!a) frees.push([n + " first half", side, "am"]); else if (!p) frees.push([n + " second half", side, "pm"]); });
+  const el = sheet("Weekend of " + fmtS(sat), list.map(c => `<div class="card"><b>${isAway(c) ? "🧳 " : ""}${esc(c.title)}</b><br><span class="tiny muted">${esc(cname(c.area))} · ${spanLabel(c, true)}${c.status === "done" ? " · done" : ""}</span>
+    <div class="btns">${c.status === "open" ? `<button class="btn sm primary" data-s="${c.id}|done">Done</button><button class="btn sm" data-s="${c.id}|moved">Move to the next free weekend</button>` : ""}<button class="btn sm" data-e="${c.id}">Edit</button><button class="btn sm warn" data-s="${c.id}|dropped">Drop it</button></div></div>`).join("")
+    + (frees.length ? `<div class="btns col">${frees.map(([n, sd, pt]) => `<button class="btn block" data-free="${sd}|${pt}">Plan ${n}</button>`).join("")}</div>` : ""));
+  el.addEventListener("click", e => { const t = e.target.closest("button"); if (!t) return;
+    if (t.dataset.s) { const [id, st] = t.dataset.s.split("|"); el.remove(); questAct(id, st); }
+    if (t.dataset.e) { el.remove(); questSheet({ edit: t.dataset.e }); }
+    if (t.dataset.free) { const [sd, pt] = t.dataset.free.split("|"); el.remove(); questSheet({ date: sat, side: sd, part: pt }); } });
 }
 function questAct(id, st) {
   const x = S.quests.find(y => y.id === id); if (!x) return;
   if (st === "moved") { x.moved = (x.moved || 0) + 1;
-    if (x.date) { let d = addD(x.date, 7); while (claimOf(d) && claimOf(d) !== x) d = addD(d, 7); if (x.day) x.day = addD(x.day, diffD(x.date, d)); x.date = d; x.q = qOf(d); }
-    else if (x.day) { x.day = addD(x.day, 7); x.q = qOf(x.day); }
+    if (qSpan(x)) { let n = 7; while (n < 371 && clashAt(x, n)) n += 7; shiftQ(x, n); }
     else if (x.when === "week") x.week = addD(x.week, 7); else if (x.when === "month") x.when = "era"; else x.q = qNext(x.q);
     toast("Moved. It keeps its place in line."); }
   else { x.status = st; x.doneAt = today(); if (st === "done") toast(x.moved ? "Done, a bit late. Late still counts." : "Done"); }
-  save(); rerender();
+  save(); nativeSync(); rerender();
+}
+/* After a trip: how's your energy? Linked Choose things keep the answer next to your guess. */
+function tripEnergy(id, e) {
+  const x = S.quests.find(y => y.id === id); if (!x) return;
+  x.back = { e, at: today() }; if (x.status === "open") { x.status = "done"; x.doneAt = qSpan(x)[1]; }
+  const th = x.thing && S.choose ? S.choose.things.find(y => y.id === x.thing) : null; if (th) th.eAfter = e;
+  save(); rerender(); toast("Noted: " + BACK[e + 2].toLowerCase() + " after " + x.title);
 }
 function renameSheet() {
   const q = curQ(); const el = sheet("Name this era", `<p class="tiny muted">${qLabel(q)}</p><input type="text" id="era-n" value="${esc(eraName(q))}" placeholder="my fitness era"><div class="btns"><button class="btn primary block" data-ok>Save</button></div>`);
@@ -285,6 +337,9 @@ const ACT = {
     bl = setRange(bl, blk.e - 1, blk.e, { k: g.area, a: "study", goal: g.id, src: "edited" }); S.logs[t] = Object.assign({}, S.logs[t] || {}, { blocks: bl, src: "edited", at: Date.now() }); save(); toast("+1 h " + g.title + ", from " + cname(blk.k).toLowerCase()); rerender(); },
   quest: a => { const [id, st] = a.split("|"); questAct(id, st); },
   "quest-edit": id => questSheet({ edit: id }),
+  "trip-energy": a => { const [id, e] = a.split("|"); tripEnergy(id, +e); },
+  "trip-skip": id => { const x = S.quests.find(y => y.id === id); if (x) { x.back = { e: null, at: today() }; save(); rerender(); } },
+  "trip-back": id => { const x = S.quests.find(y => y.id === id); if (!x) return; const r = qSpan(x), y = addD(today(), -1); x.day = r[0]; x.to = y > r[0] ? y : null; save(); nativeSync(); rerender(); toast("Welcome back. Today counts again."); },
   "quest-add": w => questSheet(w === "nextweek" ? { when: "week", week: addD(weekOf || mondayOf(today()), 7) } : { when: w }),
   seen: k => { S.seen[k] = 1; save(); rerender(); },
   resume: () => { S.pause = null; save(); rerender(); toast("The push is back on"); },
@@ -317,7 +372,7 @@ const ACT = {
   "g-src": a => { const [k, dir] = a.split("|"); const g = goalDraft, cur = g.src[k] || 0, avail = planWeek(curQ(), today())[k] || 0; g.src[k] = Math.max(0, Math.min(avail, cur + (dir === "+" ? 0.5 : -0.5))); if (!g.src[k]) delete g.src[k]; rerender(); },
   "lock-save": () => { const g = goalDraft; S.goals.push(Object.assign({ id: uid() }, clone(g), { title: g.title.trim() })); snapshot(L("lockin") + ": " + g.title.trim()); goalDraft = null; save(); NAV = [{ p: "era" }]; render(); window.scrollTo(0, 0); toast("Locked in: " + g.title.trim()); },
   sat: s => satSheet(s),
-  "claim-next": () => { const t = today(), y = +t.slice(0, 4); const free = weekendsFrom(t, (y + 1) + "-12-31").find(s => !claimOf(s)); if (free) questSheet({ date: free }); },
+  "claim-next": () => { const t = today(), y = +t.slice(0, 4); const free = weekendsFrom(t, (y + 1) + "-12-31").find(s => s >= t && !claimOf(s)); if (free) questSheet({ date: free }); },
   "era-retro-save": q => { S.eras[q] = Object.assign(S.eras[q] || {}, { at: Date.now() }); save(); home(); toast("Retro saved"); },
   "ne-from": k => { newEraFrom = k; rerender(); },
   "ne-start": nq => { const name = ($("#ne-name") || {}).value || ""; const pq = qPrev(nq); S.eras[pq] = Object.assign(S.eras[pq] || {}, { at: (S.eras[pq] || {}).at || Date.now() }); S.eras[nq] = Object.assign(S.eras[nq] || {}, { name: name.trim() });
@@ -433,14 +488,18 @@ function scheduleNative() {
     if (S.choose.things.some(x => x.status === "now")) once.push({ id: "choose-" + first.slice(0, 7), at: first + " 10:00", title: "Choose: monthly check, 5 min", text: "How did last month go for your things?" });
     S.choose.decisions.filter(dc => dc.chosen && dc.review && !dc.outcome).forEach(dc => once.push({ id: "dec-" + dc.id, at: dc.review + " 10:00", title: "Decision check: " + (dc.q || "your decision"), text: "Still the right call?" }));
   }
-  try { N.schedule(JSON.stringify({ on: S.remind.on, daily: S.remind.daily, weekly: S.remind.weekly, weeklyDow: S.remind.weeklyDow || 0, app: APPNAME, weeklyTitle: L("week") + ", 3 minutes", once })); } catch (e) {}
+  const t0 = today(), away = awayDays(t0);
+  S.quests.filter(x => live(x) && isAway(x) && !x.back && qSpan(x)[1] >= addD(t0, -1)).forEach(x => once.push({ id: "back-" + x.id, at: addD(qSpan(x)[1], 1) + " 10:00", title: "Back from " + x.title + "?", text: "One tap: how's your energy?", open: "today" }));
+  try { N.schedule(JSON.stringify({ away, on: S.remind.on, daily: S.remind.daily, weekly: S.remind.weekly, weeklyDow: S.remind.weeklyDow || 0, app: APPNAME, weeklyTitle: L("week") + ", 3 minutes", once })); } catch (e) {}
 }
+/* Trip days from today on, for the widgets and the daily reminder (both stay quiet on them). */
+function awayDays(t) { const out = []; S.quests.forEach(x => { if (!live(x) || !isAway(x)) return; const r = qSpan(x); eachDay(r[0] > t ? r[0] : t, r[1], d => out.push(d)); }); return out.sort().slice(0, 200); }
 let widgetTimer = null;
 function pushWidget() {
   const N = NATIVE(); if (!N || !N.setWidget || !S.onboarded) return;
-  const t = today(), bl = logged(t) ? S.logs[t].blocks : autoFill(t), y = t.slice(0, 4), sats = weekendsFrom(t, y + "-12-31");
-  const next = S.quests.filter(x => x.date && x.date >= addD(t, -1) && x.status === "open").sort((a, b) => a.date < b.date ? -1 : 1)[0];
-  try { N.setWidget(JSON.stringify({ date: t, logged: logged(t), free: hh(dayFree(bl)), blocks: bl.map(b => [b.s, b.e, blockColor(b, true)]), wleft: sats.length, year: y, next: next ? next.title + ", " + fmtS(next.date) : "", dots: sats.slice(0, 10).map(s => { const c = claimOf(s); return c ? ccol(c.area) : ""; }) })); } catch (e) {}
+  const t = today(), bl = logged(t) ? S.logs[t].blocks : autoFill(t), y = t.slice(0, 4), sats = weekendsFrom(t, y + "-12-31"), wd = wkDays(t, y + "-12-31"), trip = awayOn(t);
+  const next = S.quests.filter(x => x.status === "open" && qSpan(x) && qSpan(x)[1] >= t).sort((a, b) => qSpan(a)[0] < qSpan(b)[0] ? -1 : 1)[0];
+  try { N.setWidget(JSON.stringify({ date: t, logged: logged(t), away: trip ? trip.title : "", awayDays: awayDays(t), free: hh(dayFree(bl)), blocks: bl.map(b => [b.s, b.e, blockColor(b, true)]), wleft: Math.floor(wd.free / 4), wtitle: qW(wd.free) + " free " + (wd.free > 0 && wd.free <= 4 ? "weekend" : "weekends") + " left in " + y, year: y, next: next ? next.title + ", " + spanLabel(next, true) : "", dots: sats.slice(0, 10).map(s => dayPlans(s).concat(dayPlans(addD(s, 1))).map(c => c ? ccol(c.area) : "")) })); } catch (e) {}
 }
 const nativeSync = () => { scheduleNative(); pushWidget(); };
 saveHooks.push(() => { clearTimeout(widgetTimer); widgetTimer = setTimeout(pushWidget, 400); });
@@ -448,9 +507,9 @@ saveHooks.push(() => { clearTimeout(widgetTimer); widgetTimer = setTimeout(pushW
 function applyPending() {
   const N = NATIVE(); if (!N || !N.takePending) return false; let list = [];
   try { list = JSON.parse(N.takePending() || "[]"); } catch (e) {}
-  let n = 0; list.forEach(x => { if (x.t === "confirm" && x.d && !logged(x.d)) { logUsual(x.d); n++; } });
+  let n = 0; list.forEach(x => { if (x.t === "confirm" && x.d && !logged(x.d) && !awayOn(x.d)) { logUsual(x.d); n++; } });
   let open = ""; try { open = N.takeOpen ? N.takeOpen() || "" : ""; } catch (e) {}
-  if (open && S.onboarded) { draft = null; NAV = open === "check" ? [{ p: "today" }, { p: "fill", d: today() }] : open === "era" ? [{ p: "era" }, { p: "horizon" }] : open === "week" ? [{ p: "week" }] : open === "choose" ? [{ p: "choose" }] : [{ p: "today" }]; }
+  if (open && S.onboarded) { draft = null; NAV = open === "check" && !awayOn(today()) ? [{ p: "today" }, { p: "fill", d: today() }] : open === "era" ? [{ p: "era" }, { p: "horizon" }] : open === "week" ? [{ p: "week" }] : open === "choose" ? [{ p: "choose" }] : [{ p: "today" }]; }
   return n > 0 || !!open;
 }
 function onResume() {

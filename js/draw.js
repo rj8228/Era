@@ -96,12 +96,17 @@ function jarsHTML(items, o) {
   }).join("")}</div>`;
 }
 
-/* ---------- Weekend dots ---------- */
+/* ---------- Weekend dots ----------
+   One dot per weekend: Saturday on the left, Sunday on the right, the first half of each day on top.
+   A planned slot is tinted in its area's colour, and filled once it's done. */
 function dotsHTML(sats, o) {
   o = o || {};
   const tag = o.static ? "span" : "button";
-  return `<div class="dots">${sats.map(s => { const c = claimOf(s), st = c ? `border-color:${ccol(c.area)};background:${c.status === "done" ? ccol(c.area) : "transparent"}` : "";
-    return `<${tag} class="wdot${c ? " claimed" : ""}"${o.static ? "" : ` data-act="sat" data-arg="${s}"`} data-sat="${s}" style="${st}" ${o.static ? "aria-hidden=\"true\"" : `aria-label="${esc("Weekend of " + fmtS(s) + (c ? ": " + c.title : ", free"))}"`}></${tag}>`; }).join("")}</div>`;
+  const q = (c, cls) => `<i class="wh ${cls}${c ? " on" + (c.status === "done" ? " done" : "") : ""}"${c ? ` style="--qc:${ccol(c.area)}"` : ""}></i>`;
+  const say = (n, [a, p]) => !a && !p ? n + " free" : a === p ? n + " " + a.title : n + " first half " + (a ? a.title : "free") + ", second half " + (p ? p.title : "free");
+  return `<div class="dots">${sats.map(s => { const A = dayPlans(s), B = dayPlans(addD(s, 1)), any = A.concat(B).filter(Boolean);
+    const lbl = "Weekend of " + fmtS(s) + (!any.length ? ", free" : any.every(c => c === any[0]) && any.length === 4 ? ": " + any[0].title : ": " + say("Saturday", A) + "; " + say("Sunday", B));
+    return `<${tag} class="wdot${any.length ? " claimed" : ""}"${o.static ? "" : ` data-act="sat" data-arg="${s}"`} data-sat="${s}" ${o.static ? "aria-hidden=\"true\"" : `aria-label="${esc(lbl)}"`}>${q(A[0], "l t")}${q(A[1], "l b")}${q(B[0], "r t")}${q(B[1], "r b")}</${tag}>`; }).join("")}</div>`;
 }
 
 /* ---------- Paint grid (normal week) ----------

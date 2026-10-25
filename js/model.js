@@ -217,10 +217,11 @@ const tmplBlocks = d => tmplFor(isWorkday(d));
 const logged = d => !!(S.logs[d] && S.logs[d].blocks);
 const dayBlocks = d => logged(d) ? S.logs[d].blocks : tmplBlocks(d);
 function tmplWeek() { const o = {}; for (let i = 0; i < 7; i++) addTo(o, hoursOf(tmplFor(S.week.workdays.includes(i)))); return o; }
-/* Hours that actually happened from `a` to `b` (unlogged days before today count as your usual day). */
-function actualRange(a, b) { const o = {}, t = today(); eachDay(a, b, d => { if (d > t || (d === t && !logged(d))) return; addTo(o, hoursOf(dayBlocks(d))); }); return o; }
-function sharedRange(a, b) { const o = {}, t = today(); eachDay(a, b, d => { if (d <= t && logged(d)) addTo(o, sharedOf(S.logs[d].blocks)); }); return o; }
-function countedDays(a, b) { const t = today(); let n = 0; eachDay(a, b, d => { if (d < t || (d === t && logged(d))) n++; }); return n; }
+/* Hours that actually happened from `a` to `b` (unlogged days before today count as your usual day).
+   Trip days are left out of every number: they count neither for nor against anything. */
+function actualRange(a, b) { const o = {}, t = today(); eachDay(a, b, d => { if (d > t || (d === t && !logged(d)) || awayOn(d)) return; addTo(o, hoursOf(dayBlocks(d))); }); return o; }
+function sharedRange(a, b) { const o = {}, t = today(); eachDay(a, b, d => { if (d <= t && logged(d) && !awayOn(d)) addTo(o, sharedOf(S.logs[d].blocks)); }); return o; }
+function countedDays(a, b) { const t = today(); let n = 0; eachDay(a, b, d => { if ((d < t || (d === t && logged(d))) && !awayOn(d)) n++; }); return n; }
 function avgWeek(a, b) { const n = countedDays(a, b); const o = actualRange(a, b); if (!n) return o; for (const k in o) o[k] = o[k] * 7 / n; return o; }
 /* This era's plan as hours a week: the normal week plus changes and lock-ins. */
 function planDelta(q, d) {
@@ -246,8 +247,8 @@ function lessNow(it, mon) {
   return { wtd, aim, over: aim != null && wtd > aim + 0.01, watching: aim == null };
 }
 const paused = () => !!(S.pause && (S.pause.forever || (S.pause.until && S.pause.until >= today())));
-const pushing = () => !paused() && S.push !== "gentle";
-const brutal = () => !paused() && S.push === "brutal";
+const pushing = () => !paused() && !awayOn(today()) && S.push !== "gentle";
+const brutal = () => !paused() && !awayOn(today()) && S.push === "brutal";
 function overItems() { return S.less.filter(it => lessNow(it).over); }
 /* The hours a less-of item took on a normal week, from your usual days. */
 const usualOf = k => tmplWeek()[k] || 0;
@@ -261,7 +262,7 @@ function makeLadder(base, target, pace) {
 function reclaimed(a, b) {
   let tot = 0; const to = {}; const t = today();
   eachDay(a, b, d => {
-    if (d > t || !logged(d)) return;
+    if (d > t || !logged(d) || awayOn(d)) return;
     const act = hoursOf(S.logs[d].blocks), us = hoursOf(tmplBlocks(d));
     let won = 0; S.less.forEach(it => { won += Math.max(0, (us[it.k] || 0) - (act[it.k] || 0)); });
     if (won <= 0) return; tot += won;
@@ -272,7 +273,7 @@ function reclaimed(a, b) {
   return { tot, to };
 }
 function worthNo(a, b) { let n = 0; eachDay(a, b, d => { if (logged(d)) S.logs[d].blocks.forEach(x => { if (x.wo === "no") n++; }); }); return n; }
-function honestStreak() { let n = 0, d = today(); if (!logged(d)) d = addD(d, -1); while (logged(d)) { n++; d = addD(d, -1); } return n; }
+function honestStreak() { let n = 0, d = today(); if (!logged(d)) d = addD(d, -1); for (let i = 0; i < 400; i++, d = addD(d, -1)) { if (awayOn(d)) continue; if (!logged(d)) break; n++; } return n; }
 const UNITS = { health: [1, "run", "runs"], learn: [1, "guitar lesson", "guitar lessons"], friends: [3, "long dinner with friends", "long dinners with friends"], family: [3, "evening with family", "evenings with family"], trips: [8, "day trip", "day trips"], selfcare: [2, "slow morning", "slow mornings"], partner: [3, "date night", "date nights"], create: [2, "afternoon of making", "afternoons of making"], career: [1, "hour of a course", "hours of a course"] };
 function costOf(h, area) {
   const u = UNITS[area] || [1, "hour of " + cname(area).toLowerCase(), "hours of " + cname(area).toLowerCase()];
@@ -284,9 +285,41 @@ function evening(h) { return h >= 16 ? "two whole days" : h >= 8 ? "a whole day"
 /* ---------- Era and weekend helpers ---------- */
 const eraName = q => (S.eras[q] && S.eras[q].name) || "";
 const curQ = () => qOf(today());
-const freeLeftWeek = () => { const t = today(), sun = addD(mondayOf(t), 6), q = curQ(); let o = 0; eachDay(t, sun, d => { o += freeOf(hoursOf(tmplBlocks(d))) + freeOf(planDelta(q, d)) / 7; }); return o; };
+const freeLeftWeek = () => { const t = today(), sun = addD(mondayOf(t), 6), q = curQ(); let o = 0; eachDay(t, sun, d => { if (awayOn(d)) return; o += freeOf(hoursOf(tmplBlocks(d))) + freeOf(planDelta(q, d)) / 7; }); return o; };
 function questsFor(fn) { return S.quests.filter(fn); }
-const claimOf = sat => S.quests.find(x => x.date === sat && x.status !== "dropped");
+/* ---------- Side quests on the calendar ----------
+   A dated side quest takes the days from `day` to `to` (or just `day`). One saved before 0.3.2 with
+   only `date` (a Saturday) takes the whole weekend. A weekend has four slots: Saturday and Sunday,
+   each with a first half (morning) and a second half (afternoon and evening). A one-day plan can take
+   just one half (`part`: am or pm). A trip (away) takes whole days and pauses logging on them. */
+function qSpan(x) { if (x.day) return [x.day, x.to && x.to > x.day ? x.to : x.day]; if (x.date) return [x.date, addD(x.date, 1)]; return null; }
+const covers = (x, d) => { const r = qSpan(x); return !!r && d >= r[0] && d <= r[1]; };
+const live = x => x.status !== "dropped";
+const onDay = (d, not) => S.quests.find(x => x !== not && live(x) && covers(x, d)) || null;
+const HALVES = [["am", "First half", "morning"], ["pm", "Second half", "afternoon and evening"]];
+const takes = (x, d, h) => covers(x, d) && (!x.part || !h || x.part === h);
+const onSlot = (d, h, not) => S.quests.find(x => x !== not && live(x) && takes(x, d, h)) || null;
+/* What's on one weekend day: the plan in each half (the same one for a whole-day plan). */
+const dayPlans = (d, not) => [onSlot(d, "am", not), onSlot(d, "pm", not)];
+const isAway = x => !!x && !!qSpan(x) && !x.part && (x.away != null ? !!x.away : x.area === "trips");
+const awayOn = d => S.quests.find(x => live(x) && isAway(x) && covers(x, d)) || null;
+const claimOf = sat => onDay(sat) || onDay(addD(sat, 1));
+/* Weekend half-days from `from` to `to`: how many are left, free and planned. Four make a weekend. */
+function wkDays(from, to) { let left = 0, free = 0; weekendsFrom(from, to).forEach(s => [s, addD(s, 1)].forEach(d => { if (d < from || d > to) return; ["am", "pm"].forEach(h => { left++; if (!onSlot(d, h)) free++; }); })); return { left, free, planned: left - free }; }
+const qW = n => { const w = Math.floor(n / 4), f = ["", "¼", "½", "¾"][n % 4]; return (w || !f ? String(w) : "") + f; };
+const wks = n => qW(n) + (n > 0 && n <= 4 ? " weekend" : " weekends");
+/* "Sat 7 Nov", "weekend of 7 Nov", "Fri 6 – Mon 9 Nov". */
+function spanLabel(x, bare) {
+  const r = qSpan(x); if (!r) return x.when === "week" ? "this week" : x.when === "month" ? "this month" : "this era";
+  const [a, b] = r; if (a === b) return (bare ? "" : "on ") + fmtD(a) + (x.part ? ", " + (x.part === "am" ? "first" : "second") + " half" : "");
+  if (dowOf(a) === 6 && b === addD(a, 1)) return "weekend of " + fmtS(a);
+  const da = parseD(a), db = parseD(b);
+  return da.getMonth() === db.getMonth() && da.getFullYear() === db.getFullYear() ? DOW[da.getDay()] + " " + da.getDate() + " – " + fmtD(b) : fmtD(a) + " – " + fmtD(b);
+}
+function shiftQ(x, n) { if (x.day) x.day = addD(x.day, n); if (x.to) x.to = addD(x.to, n); if (x.date) x.date = addD(x.date, n); x.q = qOf(x.day || x.date); }
+/* Would moving this side quest n days land on a weekend day someone else has? */
+function clashAt(x, n) { const r = qSpan(x); if (!r) return null; let hit = null; eachDay(addD(r[0], n), addD(r[1], n), d => { if (!hit && [0, 6].includes(dowOf(d))) { const c = x.part ? onSlot(d, x.part, x) : onDay(d, x); if (c) hit = { d, c }; } }); return hit; }
+const BACK = ["Drained", "Tired", "Same as before", "Rested", "Recharged"];
 
 /* ---------- Screen time (Android only) ---------- */
 const NATIVE = () => window.EraNative || null;
