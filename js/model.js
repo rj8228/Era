@@ -138,7 +138,7 @@ function fresh() {
     protect: ["sleep", "health"],
     st: { on: false, aim: 2, map: {} },
     remind: { on: true, daily: "21:30", weekly: "19:00", weeklyDow: 0 },
-    labels: {}, seen: {}, lastOpen: null, skipBefore: null
+    labels: {}, seen: {}, lastOpen: null, skipBefore: null, choose: null
   };
 }
 let S; // loaded at the end of this file, once everything it needs is defined
@@ -173,7 +173,7 @@ function catOf(a) {
 const actName = a => (ACTS[a] && ACTS[a].n) || "";
 
 /* ---------- Blocks ---------- */
-const sameB = (a, b) => a.k === b.k && (a.a || "") === (b.a || "") && (a.w || "") === (b.w || "") && (a.sh || "") === (b.sh || "") && (a.wo || "") === (b.wo || "") && (a.src || "") === (b.src || "") && (a.check || 0) === (b.check || 0) && (a.goal || "") === (b.goal || "");
+const sameB = (a, b) => a.k === b.k && (a.a || "") === (b.a || "") && (a.w || "") === (b.w || "") && (a.sh || "") === (b.sh || "") && (a.wo || "") === (b.wo || "") && (a.src || "") === (b.src || "") && (a.check || 0) === (b.check || 0) && (a.goal || "") === (b.goal || "") && (a.thing || "") === (b.thing || "");
 function norm(list) {
   const bl = list.filter(b => b.e - b.s > 1e-6).map(b => ({ ...b })).sort((x, y) => x.s - y.s);
   const out = []; let t = 0;
