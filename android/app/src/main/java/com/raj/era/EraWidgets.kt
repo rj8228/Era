@@ -48,22 +48,24 @@ object EraWidgets {
     private fun views(ctx: Context, cls: Class<*>): RemoteViews {
         val w = Store.widget(ctx)
         val fresh = w != null && w.optString("date") == Store.today()
+        val away = w?.optJSONArray("awayDays")?.let { a -> (0 until a.length()).any { a.optString(it) == Store.today() } } ?: false
         return when (cls) {
             FreeWidget::class.java -> RemoteViews(ctx.packageName, R.layout.widget_free).apply {
                 val logged = fresh && w!!.optBoolean("logged")
-                setTextViewText(R.id.w_free, if (fresh) w!!.optString("free") else "–")
-                setTextViewText(R.id.w_btn, if (logged) "Logged ✓" else "Looks right")
+                setTextViewText(R.id.w_free, if (away) "Trip" else if (fresh) w!!.optString("free") else "–")
+                setTextViewText(R.id.w_btn, if (away) "On a trip" else if (logged) "Logged ✓" else "Looks right")
                 setOnClickPendingIntent(R.id.w_root, open(ctx, "today", 21))
-                setOnClickPendingIntent(R.id.w_btn, if (logged) open(ctx, "today", 22) else confirm(ctx))
+                setOnClickPendingIntent(R.id.w_btn, if (logged || away) open(ctx, "today", 22) else confirm(ctx))
             }
             DialWidget::class.java -> RemoteViews(ctx.packageName, R.layout.widget_dial).apply {
-                setImageViewBitmap(R.id.w_img, dial(if (fresh) w else null))
+                setImageViewBitmap(R.id.w_img, if (away) dial(null, "Trip", "nothing to log") else dial(if (fresh) w else null))
                 setOnClickPendingIntent(R.id.w_root, open(ctx, "check", 23))
             }
             else -> RemoteViews(ctx.packageName, R.layout.widget_weekends).apply {
                 val left = w?.optInt("wleft", -1) ?: -1
                 val year = w?.optString("year") ?: ""
-                setTextViewText(R.id.w_title, if (left >= 0) "$left weekend${if (left == 1) "" else "s"} left in $year" else "Weekends left")
+                val title = w?.optString("wtitle") ?: ""
+                setTextViewText(R.id.w_title, if (title.isNotEmpty()) title else if (left >= 0) "$left weekend${if (left == 1) "" else "s"} left in $year" else "Weekends left")
                 setImageViewBitmap(R.id.w_dots, dots(w))
                 val next = w?.optString("next") ?: ""
                 setTextViewText(R.id.w_next, if (next.isNotEmpty()) "Next: $next" else "Tap to claim one")
@@ -75,7 +77,7 @@ object EraWidgets {
     private fun color(s: String, fallback: Int) = runCatching { Color.parseColor(s) }.getOrDefault(fallback)
 
     /** Today's 24-hour dial, midnight at the top. Less-of time is already grey in the data. */
-    private fun dial(w: JSONObject?): Bitmap {
+    private fun dial(w: JSONObject?, center: String? = null, sub: String = "free today"): Bitmap {
         val size = 360
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -98,25 +100,37 @@ object EraWidgets {
             color = 0xFF1B1F33.toInt(); textAlign = Paint.Align.CENTER
             textSize = 62f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        c.drawText(w?.optString("free")?.takeIf { it.isNotEmpty() } ?: "–", size / 2f, size / 2f + 8f, tp)
+        c.drawText(center ?: w?.optString("free")?.takeIf { it.isNotEmpty() } ?: "–", size / 2f, size / 2f + 8f, tp)
         tp.textSize = 28f; tp.typeface = Typeface.DEFAULT; tp.color = 0xFF5A6075.toInt()
-        c.drawText("free today", size / 2f, size / 2f + 48f, tp)
+        c.drawText(sub, size / 2f, size / 2f + 48f, tp)
         return bmp
     }
 
-    /** Up to 10 dots, one per weekend left this year; claimed ones in their area's colour. */
+    /** Up to 10 dots, one per weekend left this year: Saturday on the left, Sunday on the right, the
+     *  first half of each day on top. A planned slot is filled in its area's colour.
+     *  Each entry is [sat 1st, sat 2nd, sun 1st, sun 2nd], [sat, sun] or one colour. */
     private fun dots(w: JSONObject?): Bitmap {
-        val n = 10; val cell = 60; val h = 60
+        val n = 10; val cell = 60; val h = 60; val r = 20f
         val bmp = Bitmap.createBitmap(n * cell, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f; color = 0xFFC9CEDC.toInt() }
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
         val arr = w?.optJSONArray("dots")
         val count = minOf(n, arr?.length() ?: 0)
+        // Start angles (0 = 3 o'clock, clockwise): Sat 1st top-left, Sat 2nd bottom-left, Sun 1st top-right, Sun 2nd bottom-right.
+        val starts = floatArrayOf(180f, 90f, 270f, 0f)
         for (i in 0 until count) {
-            val col = arr!!.optString(i)
+            val e = arr!!.optJSONArray(i)
+            val cols = when {
+                e == null -> List(4) { arr.optString(i) }
+                e.length() >= 4 -> List(4) { e.optString(it) }
+                else -> listOf(e.optString(0), e.optString(0), e.optString(1), e.optString(1))
+            }
             val cx = i * cell + cell / 2f; val cy = h / 2f
-            if (col.isNotEmpty()) { p.strokeWidth = 7f; p.color = color(col, 0xFF2463C9.toInt()) } else { p.strokeWidth = 3f; p.color = 0xFFC9CEDC.toInt() }
-            c.drawCircle(cx, cy, 20f, p)
+            val oval = RectF(cx - r, cy - r, cx + r, cy + r)
+            for (q in 0 until 4) if (cols[q].isNotEmpty()) { fill.color = color(cols[q], 0xFF2463C9.toInt()); c.drawArc(oval, starts[q], 90f, true, fill) }
+            c.drawCircle(cx, cy, r, ring)
+            c.drawLine(cx, cy - r, cx, cy + r, ring)
         }
         return bmp
     }

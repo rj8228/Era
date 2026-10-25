@@ -370,7 +370,8 @@ P.ch_thing = a => {
   const x = thing(a.id); if (!x) return P.choose();
   const t = today(), ym = ymOf(t), lk = x.links || {}, w = weekly(x);
   let era = "";
-  if (x.status === "now") { if (lk.moves && lk.moves.length) era = `${esc(L("shift"))}: ${S.moves.filter(m => lk.moves.includes(m.id)).map(m => cname(m.from) + " → " + cname(m.to) + " " + h1(m.h) + " h").join(", ")}`; if (lk.goal) era = esc(L("lockin")) + ": " + x.total + " h by " + fmtS(x.by); if (lk.quest) era = "Weekend of " + fmtS(x.date); }
+  if (x.status === "now") { if (lk.moves && lk.moves.length) era = `${esc(L("shift"))}: ${S.moves.filter(m => lk.moves.includes(m.id)).map(m => cname(m.from) + " → " + cname(m.to) + " " + h1(m.h) + " h").join(", ")}`; if (lk.goal) era = esc(L("lockin")) + ": " + x.total + " h by " + fmtS(x.by); if (lk.quest) { const qu = S.quests.find(y => y.id === lk.quest); era = qu ? esc(spanLabel(qu, true)).replace(/^w/, "W") + (isAway(qu) ? " · trip" : "") : "Weekend of " + fmtS(x.date); } }
+  if (x.eAfter != null) era += (era ? "<br>" : "") + `After: <b>${BACK[x.eAfter + 2].toLowerCase()}</b>` + (x.e != null ? ` · you guessed ${["drains a lot", "drains a bit", "neutral", "recharges a bit", "recharges a lot"][x.e + 2]}` : "");
   return `${chHead(x.t, "Back")}<p class="tiny muted">${esc(cname(x.area))} · ${TYPES.find(y => y[0] === x.type)[1].toLowerCase()} · score ${score(x)}</p>
   <div class="seg small" role="group">${STATUSES.slice(0, 4).map(([k, n]) => `<button data-act="th-status" data-arg="${x.id}|${k}" aria-pressed="${x.status === k}">${n}</button>`).join("")}</div>
   ${x.status === "later" ? `<div class="li"><label class="grow" for="th-rev">Review on</label><input type="date" id="th-rev" data-in="th-review" data-id="${x.id}" value="${x.review || addD(t, 90)}" style="width:auto"></div>` : ""}

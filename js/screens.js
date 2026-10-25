@@ -6,7 +6,7 @@ const head = (title, backTxt) => `<div class="subhd"><button class="backbtn" dat
 const link = (label, sub, act, arg, extra) => `<button class="rowlink" data-act="${act}"${arg != null ? ` data-arg="${esc(arg)}"` : ""}><span class="grow"><b>${label}</b>${sub ? `<br><span class="tiny muted">${sub}</span>` : ""}${extra || ""}</span><span class="chev" aria-hidden="true">›</span></button>`;
 const chip = (t, act, arg, on, style) => `<button class="chip" data-act="${act}" data-arg="${esc(arg)}" aria-pressed="${!!on}"${style ? ` style="${style}"` : ""}>${t}</button>`;
 const stepper = (act, arg, v, lbl, unit) => `<span class="stp"><button class="step" data-act="${act}" data-arg="${esc(arg)}|-" aria-label="Less ${esc(lbl)}">−</button><b class="val">${h1(v)}${unit == null ? " h" : unit}</b><button class="step" data-act="${act}" data-arg="${esc(arg)}|+" aria-label="More ${esc(lbl)}">+</button></span>`;
-const freeWeekends = to => weekendsFrom(today(), to).filter(s => !claimOf(s)).length;
+const freeWeekends = to => qW(wkDays(today(), to).free);
 const statsCard = () => { const t = today(), q = curQ(); return `<div class="card dark"><div class="stats"><div class="stat"><b>${Math.max(0, Math.round(freeLeftWeek()))}</b><span>free hours left this week</span></div><div class="stat"><b>${freeWeekends(qEnd(q))}</b><span>free weekends left this era</span></div><div class="stat"><b>${freeWeekends(t.slice(0, 4) + "-12-31")}</b><span>free weekends left in ${t.slice(0, 4)}</span></div></div></div>`; };
 const pausedBanner = () => paused() ? `<div class="card banner">${S.pause.forever ? "The push is paused until you turn it back on." : "The push is paused until " + fmtS(S.pause.until) + "."} Logging still works.<div class="btns">${btn("Resume now", "resume", null, "sm")}</div></div>` : "";
 function brutalBanner() { if (!brutal()) return ""; const o = overItems(); if (!o.length) return ""; const it = o[0], st = lessNow(it); return `<div class="card redtop slim"><b>↓ ${esc(cname(it.k))}: ${hh(st.wtd)} this week</b><span class="tiny">${hh(st.wtd - st.aim)} over your aim. That's ${costOf(st.wtd - st.aim, it.swap || S.areas[0])}.</span></div>`; }
@@ -80,7 +80,7 @@ function missedDays() {
   const t = today(); let from = addD(t, -14);
   if (S.onboardedAt && S.onboardedAt > from) from = S.onboardedAt;
   if (S.skipBefore && S.skipBefore > from) from = S.skipBefore;
-  const out = []; eachDay(from, addD(t, -1), d => { if (!logged(d)) out.push(d); }); return out;
+  const out = []; eachDay(from, addD(t, -1), d => { if (!logged(d) && !awayOn(d)) out.push(d); }); return out;
 }
 P.today = () => {
   const t = today(), q = curQ(), lg = logged(t);
@@ -96,9 +96,15 @@ P.today = () => {
   else if (miss.length) h += `<button class="card rowcard warnline" data-act="go" data-arg="catchup"><span class="grow"><b>${miss.length} day${miss.length > 1 ? "s" : ""} not logged</b><br><span class="tiny muted">${miss.slice(0, 3).map(d => DOW[dowOf(d)]).join(", ")}${miss.length > 3 ? "…" : ""}. Confirm them in one go.</span></span><span class="chev">›</span></button>`;
   // Lock-ins that ended
   S.goals.filter(g => !g.closed && g.end < t).forEach(g => { h += `<div class="card"><span class="tag blue">${esc(L("lockin"))} is over</span><h3 style="margin-top:6px">${esc(g.title)}</h3><p class="tiny muted" style="margin:4px 0">You chose it because</p><p><b>“${esc(g.why || "you didn't write a reason")}”</b></p><p class="tiny muted">${h1(goalDone(g))} of ${g.total} h logged. Did it happen?</p><div class="btns">${btn("It happened", "goal-end", g.id + "|done", "sm primary")}${btn("Partly", "goal-end", g.id + "|part", "sm")}${btn("Not this time", "goal-end", g.id + "|no", "sm")}</div></div>`; });
+  // Back from a trip: one energy check
+  const bk = tripBack(t);
+  if (bk) h += `<div class="card tip"><span class="tag blue">Back from a trip</span><h3 style="margin-top:6px">${esc(bk.title)}</h3><p class="tiny muted" style="margin:4px 0 6px">${spanLabel(bk, true)}. One question: how's your energy now?</p>${backDots(bk)}<div class="btns">${btn("We didn't go", "quest", bk.id + "|dropped", "sm")}${btn("Skip", "trip-skip", bk.id, "sm")}</div></div>`;
   h += statsCard();
-  // Today's dial
-  if (lg) {
+  // Today's dial, or a trip
+  const trip = awayOn(t);
+  if (trip) { const r = qSpan(trip), n = diffD(r[0], t) + 1, all = daysIn(r[0], r[1]);
+    h += `<div class="card trip"><div class="row"><span class="tripicon" aria-hidden="true">🧳</span><span class="grow"><b>${esc(trip.title)}</b><br><span class="tiny muted">On a trip · day ${n} of ${all}${r[1] > t ? " · back " + fmtD(addD(r[1], 1)) : " · last day"}</span></span></div><p class="tiny" style="margin:8px 0 0">Nothing to log on trip days. They don't count for or against anything.</p><div class="btns">${btn("Edit dates", "quest-edit", trip.id, "sm")}${n > 1 ? btn("I'm back early", "trip-back", trip.id, "sm") : ""}</div></div>`; }
+  else if (lg) {
     const bl = S.logs[t].blocks, rc = reclaimed(t, t);
     h += `<div class="card"><div class="row"><h3 class="grow">Today ✓</h3><button class="linkbtn" data-act="go" data-arg="dial" data-d="${t}">Edit ›</button></div>${miniDay(bl, rc.tot > 0 ? `+${hh(rc.tot)} ${esc(Object.keys(rc.to).map(cname).join(", ") || "free time")} instead of ${esc(S.less.map(x => cname(x.k).toLowerCase()).join(" or "))}.` + (S.logs[t].good ? `<br>“${esc(S.logs[t].good)}”` : "") : (S.logs[t].good ? `“${esc(S.logs[t].good)}”` : "Logged. Your shape is up to date."), dayFree(bl))}</div>`;
     if (rc.tot > 0) { const era = reclaimed(qStart(q), t); h += `<div class="card dark center"><div class="bignum">+${hh(rc.tot)} ${esc(L("reclaimed").toLowerCase())}</div><div class="tiny">${esc(S.less.filter(it => (hoursOf(tmplBlocks(t))[it.k] || 0) > (hoursOf(bl)[it.k] || 0)).map(it => cname(it.k)).join(", "))} → ${esc(Object.keys(rc.to).map(cname).join(", ") || "free time")}</div><div class="tiny" style="opacity:.8;margin-top:4px">${esc(L("reclaimed"))} this era <b>${hh(era.tot)}</b></div></div>`; }
@@ -128,10 +134,13 @@ function screenTimeCard(d) {
   ${apps.map(a => { const k = appCat(a.pkg, a.hint); return `<div class="lrow"><span>${esc(a.label || a.pkg)}</span><div class="bar"><i style="width:${a.min / max * 100}%;background:${k ? ccol(k) : "var(--line2)"}"></i></div><b>${hmin(a.min)}</b></div>${k && isArea(k) ? `<div class="tiny muted" style="margin:-2px 0 2px">counts for ${esc(cname(k))}, not against you</div>` : ""}`; }).join("")}
   <p class="tiny" style="margin:6px 0 0">${tot < aim ? `<b>${hmin(aim - tot)} left today.</b>` : `<b>${hmin(tot - aim)} over today.</b>`}</p></div>`;
 }
-const inWeek = (x, mon) => { const sun = addD(mon, 6); return (x.when === "week" && x.week === mon) || (x.date && x.date >= addD(mon, -1) && x.date <= sun) || (x.day && x.day >= mon && x.day <= sun); };
+const inWeek = (x, mon) => { const r = qSpan(x); return r ? r[0] <= addD(mon, 6) && r[1] >= mon : x.when === "week" && x.week === mon; };
+/* A trip that ended in the last two weeks and hasn't had its energy check. */
+const tripBack = t => S.quests.filter(x => live(x) && isAway(x) && !x.back && qSpan(x)[1] < t && qSpan(x)[1] >= addD(t, -14)).sort((a, b) => qSpan(a)[1] < qSpan(b)[1] ? 1 : -1)[0] || null;
+const backDots = x => `<div class="edots" role="group" aria-label="Energy after ${esc(x.title)}">${BACK.map((n, i) => `<button class="edot e${i}" data-act="trip-energy" data-arg="${x.id}|${i - 2}" aria-label="${n}">${i > 2 ? "+" + (i - 2) : i < 2 ? "−" + (2 - i) : "0"}</button>`).join("")}</div><div class="elabels"><span class="warnc">drained</span><span class="muted">same</span><span class="goodc">recharged</span></div>`;
 function questRow(x) {
-  const when = x.day ? "on " + fmtD(x.day) : x.date ? "weekend of " + fmtS(x.date) : x.when === "week" ? "this week" : x.when === "month" ? "this month" : "this era";
-  return `<div class="li"><button class="grow blkbtn" data-act="quest-edit" data-arg="${x.id}" aria-label="Edit ${esc(x.title)}"><b>${esc(x.title)}</b><br><span class="tiny muted">${sw(ccol(x.area))}${esc(cname(x.area))} · ${when}${x.moved ? " · moved " + x.moved + "×" : ""}</span></button>${x.status === "open" ? btn("Done", "quest", x.id + "|done", "sm") + btn("Move", "quest", x.id + "|moved", "sm") + `<button class="icon-btn" data-act="quest" data-arg="${x.id}|dropped" aria-label="Drop ${esc(x.title)}">✕</button>` : `<span class="tag ${x.status === "done" ? "good" : ""}">${x.status}</span>`}</div>`;
+  const when = spanLabel(x), away = isAway(x) ? "🧳 " : "", back = x.back && x.back.e != null ? " · ⚡ " + BACK[x.back.e + 2].toLowerCase() : "";
+  return `<div class="li"><button class="grow blkbtn" data-act="quest-edit" data-arg="${x.id}" aria-label="Edit ${esc(x.title)}"><b>${away}${esc(x.title)}</b><br><span class="tiny muted">${sw(ccol(x.area))}${esc(cname(x.area))} · ${when}${x.moved ? " · moved " + x.moved + "×" : ""}${back}</span></button>${x.status === "open" ? btn("Done", "quest", x.id + "|done", "sm") + btn("Move", "quest", x.id + "|moved", "sm") + `<button class="icon-btn" data-act="quest" data-arg="${x.id}|dropped" aria-label="Drop ${esc(x.title)}">✕</button>` : `<span class="tag ${x.status === "done" ? "good" : ""}">${x.status}</span>`}</div>`;
 }
 
 /* What Era filled */
@@ -184,7 +193,7 @@ function stDiffText(d) { const sl = stSlots(d); if (!sl) return ""; const parts 
 
 /* ======================= Week ======================= */
 let weekOf = null;
-function planRange(a, b) { const o = {}, q = qOf(a); eachDay(a, b, d => { addTo(o, hoursOf(tmplBlocks(d))); addTo(o, planDelta(q, d), 1 / 7); }); for (const k in o) o[k] = Math.max(0, o[k]); return o; }
+function planRange(a, b) { const o = {}, q = qOf(a); eachDay(a, b, d => { if (awayOn(d)) return; addTo(o, hoursOf(tmplBlocks(d))); addTo(o, planDelta(q, d), 1 / 7); }); for (const k in o) o[k] = Math.max(0, o[k]); return o; }
 P.week = () => {
   const t = today(); if (!weekOf) weekOf = mondayOf(t);
   const mon = weekOf, sun = addD(mon, 6), last = sun < t ? sun : t, started = mon <= t;
@@ -192,14 +201,16 @@ P.week = () => {
   h += pausedBanner() + (mon === mondayOf(t) ? brutalBanner() : "");
   if (!started) return h + `<div class="card"><p class="muted">This week hasn't started. Plan: ${hh(freeOf(planWeek(qOf(mon))))} of free time.</p>${shapeSVG(S.areas, [{ v: planWeek(qOf(mon)) }], 280)}</div>`;
   const act = actualRange(mon, last), plan = planRange(mon, last), sh = sharedRange(mon, last);
-  const nLogged = Object.keys(S.logs).filter(d => d >= mon && d <= sun && logged(d)).length, elapsed = daysIn(mon, last);
+  let away = 0; eachDay(mon, last, d => { if (awayOn(d)) away++; });
+  const nLogged = Object.keys(S.logs).filter(d => d >= mon && d <= sun && logged(d) && !awayOn(d)).length, elapsed = daysIn(mon, last) - away;
   const fade = mon === mondayOf(t) && pushing() && overItems().length;
-  h += `<div class="card">${shapeSVG(S.areas, [{ v: plan, kind: "plan" }].concat(Object.keys(sh).length ? [{ v: act, extra: sh, kind: "shared" }] : []).concat([{ v: act, kind: fade ? "dull" : "actual" }]), 300, { label: "This week against the plan" })}${legend("Plan", fade ? "This week (faded: over an aim)" : "This week", Object.keys(sh).length ? "Shared" : "")}<p class="tiny muted center">${elapsed} of 7 days · ${nLogged} logged · unlogged days count as usual</p></div>`;
-  h += `<div class="card">${S.areas.map(k => { const a = act[k] || 0, p = plan[k] || 0; return `<div class="cmp"><span>${sw(ccol(k))}${esc(cname(k))}</span><div class="bar"><i style="width:${Math.min(100, p ? a / p * 100 : a ? 100 : 0)}%;background:${ccol(k)}"></i></div><span class="t">${h1(a)} of ${h1(p)}${sh[k] ? `<br><span class="tiny muted">+${h1(sh[k])} shared</span>` : ""}</span></div>`; }).join("")}</div>`;
+  if (!elapsed) h += `<div class="card trip"><div class="row"><span class="tripicon" aria-hidden="true">🧳</span><p class="grow" style="margin:0">On a trip so far this week. Trip days don't count, so there's nothing to compare yet.</p></div></div>`;
+  else h += `<div class="card">${shapeSVG(S.areas, [{ v: plan, kind: "plan" }].concat(Object.keys(sh).length ? [{ v: act, extra: sh, kind: "shared" }] : []).concat([{ v: act, kind: fade ? "dull" : "actual" }]), 300, { label: "This week against the plan" })}${legend("Plan", fade ? "This week (faded: over an aim)" : "This week", Object.keys(sh).length ? "Shared" : "")}<p class="tiny muted center">${elapsed} of ${7 - away} days · ${nLogged} logged${away ? " · " + away + " on a trip, not counted" : ""} · unlogged days count as usual</p></div>`;
+  if (elapsed) h += `<div class="card">${S.areas.map(k => { const a = act[k] || 0, p = plan[k] || 0; return `<div class="cmp"><span>${sw(ccol(k))}${esc(cname(k))}</span><div class="bar"><i style="width:${Math.min(100, p ? a / p * 100 : a ? 100 : 0)}%;background:${ccol(k)}"></i></div><span class="t">${h1(a)} of ${h1(p)}${sh[k] ? `<br><span class="tiny muted">+${h1(sh[k])} shared</span>` : ""}</span></div>`; }).join("")}</div>`;
   h += lessCard(mon);
-  const usualWork = (() => { let o = 0; eachDay(mon, last, d => o += hoursOf(tmplBlocks(d)).work || 0); return o; })();
-  const work = (act.work || 0) + (act.overtime || 0), ot = Math.max(0, work - usualWork), sleepAvg = (act.sleep || 0) / elapsed;
-  h += `<p class="tiny frameline">Work ${hh(work)}${ot > 0.01 ? `, <b class="amber">${hh(ot)} overtime</b>` : ""} · sleep ${h1(sleepAvg)} h a night${sleepAvg < 7 - 0.01 ? `, <b class="amber">below 7–8</b>` : sleepAvg > 9.5 ? `, <b class="amber">above 7–9</b>` : ""}</p>`;
+  const usualWork = (() => { let o = 0; eachDay(mon, last, d => { if (!awayOn(d)) o += hoursOf(tmplBlocks(d)).work || 0; }); return o; })();
+  const work = (act.work || 0) + (act.overtime || 0), ot = Math.max(0, work - usualWork), sleepAvg = (act.sleep || 0) / (elapsed || 1);
+  if (elapsed) h += `<p class="tiny frameline">Work ${hh(work)}${ot > 0.01 ? `, <b class="amber">${hh(ot)} overtime</b>` : ""} · sleep ${h1(sleepAvg)} h a night${sleepAvg < 7 - 0.01 ? `, <b class="amber">below 7–8</b>` : sleepAvg > 9.5 ? `, <b class="amber">above 7–9</b>` : ""}</p>`;
   // Observe → decide → shift
   if (mon === mondayOf(t)) {
     const ready = S.less.filter(it => it.aim == null && !it.ladder && it.since && diffD(it.since, t) >= 14 && !(it.observed && diffD(it.observed, t) < 28));
@@ -209,7 +220,7 @@ P.week = () => {
   if (S.st.on && NATIVE()) h += stWeekCard(mon);
   const R = S.retros[mon] || {};
   h += R.at ? link(esc(L("week")) + " done", esc(R.change ? "Change: " + R.change : "Saved"), "go", "receipt") : `<div class="btns">${btn("Do the " + esc(L("week").toLowerCase()), "go", "receipt", "primary block")}</div>`;
-  h += `<h2>Days</h2><div class="card list">${[...Array(7)].map((_, i) => addD(mon, i)).filter(d => d <= t).map(d => { const lg = logged(d), bl = dayBlocks(d); return `<button class="li dayrow" data-act="go" data-arg="dial" data-d="${d}">${dialSVG(bl, 42)}<span class="grow"><b>${fmtD(d)}</b><br><span class="tiny muted">${lg ? (S.logs[d].good ? esc(S.logs[d].good) : "logged · " + hh(dayFree(bl)) + " free") : "not logged · counts as usual"}</span></span><span class="chev">›</span></button>`; }).join("")}</div>`;
+  h += `<h2>Days</h2><div class="card list">${[...Array(7)].map((_, i) => addD(mon, i)).filter(d => d <= t).map(d => { const lg = logged(d), bl = dayBlocks(d), tr = awayOn(d); if (tr) return `<div class="li dayrow away"><span class="tripicon" aria-hidden="true">🧳</span><span class="grow"><b>${fmtD(d)}</b><br><span class="tiny muted">On a trip · ${esc(tr.title)}</span></span></div>`; return `<button class="li dayrow" data-act="go" data-arg="dial" data-d="${d}">${dialSVG(bl, 42)}<span class="grow"><b>${fmtD(d)}</b><br><span class="tiny muted">${lg ? (S.logs[d].good ? esc(S.logs[d].good) : "logged · " + hh(dayFree(bl)) + " free") : "not logged · counts as usual"}</span></span><span class="chev">›</span></button>`; }).join("")}</div>`;
   const qs = S.quests.filter(x => inWeek(x, mon));
   if (qs.length) h += `<h2>${esc(L("quests"))} this week</h2><div class="card list">${qs.map(questRow).join("")}</div>`;
   return h;
@@ -262,8 +273,8 @@ P.nextweek = () => {
 };
 P.weekdone = () => {
   const mon = weekOf || mondayOf(today()), sun = addD(mon, 6), last = sun < today() ? sun : today(), R = S.retros[mon] || {};
-  const n = Object.keys(S.logs).filter(d => d >= mon && d <= sun && logged(d)).length;
-  return `<h1>Week saved</h1><div class="card center">${shapeSVG(S.areas, [{ v: planRange(mon, last), kind: "plan" }, { v: actualRange(mon, last) }], 260)}<h3>${n} of 7 days logged · ${esc(L("week").toLowerCase())} done</h3>${R.change ? `<p class="tiny muted">Change: ${esc(R.change)}</p>` : ""}</div><p class="tiny muted">We'll show your change on Monday morning.</p>${btn("Back to the week", "home", null, "primary block")}`;
+  const n = Object.keys(S.logs).filter(d => d >= mon && d <= sun && logged(d) && !awayOn(d)).length; let away = 0; eachDay(mon, sun, d => { if (awayOn(d)) away++; });
+  return `<h1>Week saved</h1><div class="card center">${shapeSVG(S.areas, [{ v: planRange(mon, last), kind: "plan" }, { v: actualRange(mon, last) }], 260)}<h3>${n} of ${7 - away} days logged · ${esc(L("week").toLowerCase())} done</h3>${R.change ? `<p class="tiny muted">Change: ${esc(R.change)}</p>` : ""}</div><p class="tiny muted">We'll show your change on Monday morning.</p>${btn("Back to the week", "home", null, "primary block")}`;
 };
 /* Observe → decide → shift */
 P.observe = () => {
@@ -296,13 +307,13 @@ P.decide2 = () => {
 /* ======================= Era ======================= */
 P.era = () => {
   const t = today(), q = curQ(), qe = qEnd(q), act = S.goals.filter(g => !g.closed && g.end >= t);
-  const sats = weekendsFrom(t, qe), claimed = sats.filter(claimOf).length, nmv = S.moves.filter(m => m.q === q).length;
-  let h = `<p class="tiny muted">${qLabel(q)} · ${daysIn(t, qe)} days, ${sats.length} weekends left</p><button class="titlebtn" data-act="rename-era" aria-label="Rename this era"><h1>${esc(eraName(q) || "Name this era")}</h1></button>`;
+  const sats = weekendsFrom(t, qe), wd = wkDays(t, qe), nmv = S.moves.filter(m => m.q === q).length;
+  let h = `<p class="tiny muted">${qLabel(q)} · ${daysIn(t, qe)} days, ${wks(wd.left)} left</p><button class="titlebtn" data-act="rename-era" aria-label="Rename this era"><h1>${esc(eraName(q) || "Name this era")}</h1></button>`;
   h += pausedBanner() + brutalBanner();
   h += `<div class="card">${shapeSVG(S.areas, [{ v: tmplWeek(), kind: "plan" }, { v: planWeek(q, t) }], 300, { label: "Your normal week against this era's plan" })}${legend("Your normal week", "This era's plan")}</div>`;
   h += `<div class="card list">${link(esc(L("shift")), nmv ? "Drag hour beads · " + nmv + " change" + (nmv > 1 ? "s" : "") : "Drag hour beads between areas", "go", "beads")}
   ${link(esc(L("lockin")) + " for a goal", act.length ? esc(act[0].title) + " · " + h1(goalDone(act[0])) + " of " + act[0].total + " h" : "Make room for a big goal, like an exam", "go", "lock1")}
-  ${link("Weekends and " + esc(L("quests").toLowerCase()), sats.length + " weekends left · " + claimed + " planned", "go", "horizon", `<div style="margin-top:6px">${dotsHTML(sats.slice(0, 10), { static: 1 })}</div>`)}
+  ${link("Weekends and " + esc(L("quests").toLowerCase()), wks(wd.left) + " left · " + qW(wd.planned) + " planned", "go", "horizon", `<div style="margin-top:6px">${dotsHTML(sats.slice(0, 10), { static: 1 })}</div>`)}
   ${link("‘" + esc(eraName(q) || "This era") + "’ " + esc(L("era")), "What happened against the plan", "go", "retro")}
   ${link("Past eras", "Look back, and do a retro for any of them", "go", "pasteras")}</div>`;
   return h;
@@ -352,17 +363,18 @@ P.lock3 = () => {
 };
 /* Weekends and side quests */
 P.horizon = () => {
-  const t = today(), y = +t.slice(0, 4), a = weekendsFrom(t, y + "-12-31"), b = weekendsFrom((y + 1) + "-01-01", (y + 1) + "-12-31");
-  const up = S.quests.filter(x => x.date && x.date >= addD(t, -1) && x.status !== "dropped").sort((p, q) => p.date < q.date ? -1 : 1);
-  return `${head("Weekends left", "Era")}<p class="muted">One dot per weekend. Tap a free one to claim it.</p>
-  <div class="card"><h3>${y} · ${a.length} left${a.filter(claimOf).length ? ", " + a.filter(claimOf).length + " planned" : ""}</h3>${dotsHTML(a)}<h3 style="margin-top:12px">${y + 1} · ${b.length}</h3>${dotsHTML(b)}</div>
-  ${up.length ? `<div class="card list">${up.map(x => `<button class="li" data-act="sat" data-arg="${x.date}"><span class="grow"><b>${fmtS(x.date)}</b> ${esc(x.title)}</span><span class="tiny muted">${esc(cname(x.area))}${x.status === "done" ? " ✓" : ""}</span></button>`).join("")}</div>` : ""}
+  const t = today(), y = +t.slice(0, 4), a = weekendsFrom(t, y + "-12-31"), b = weekendsFrom((y + 1) + "-01-01", (y + 1) + "-12-31"), wa = wkDays(t, y + "-12-31");
+  const up = S.quests.filter(x => live(x) && qSpan(x) && qSpan(x)[1] >= t).sort((p, q) => qSpan(p)[0] < qSpan(q)[0] ? -1 : 1);
+  return `${head("Weekends left", "Era")}<p class="muted">One dot per weekend: Saturday on the left, Sunday on the right, first half on top. Tap one to plan it.</p>
+  <div class="card"><h3>${y} · ${wks(wa.left)} left${wa.planned ? ", " + qW(wa.planned) + " planned" : ""}</h3>${dotsHTML(a)}<h3 style="margin-top:12px">${y + 1} · ${b.length}</h3>${dotsHTML(b)}</div>
+  ${up.length ? `<div class="card list">${up.map(x => `<button class="li" data-act="quest-edit" data-arg="${x.id}"><span class="grow"><b>${spanLabel(x, true)}</b> ${isAway(x) ? "🧳 " : ""}${esc(x.title)}</span><span class="tiny muted">${esc(cname(x.area))}${x.status === "done" ? " ✓" : ""}</span></button>`).join("")}</div>` : ""}
   <div class="btns">${btn("Claim a weekend", "claim-next", null, "block")}${btn("All " + esc(L("quests").toLowerCase()), "go", "quests", "block")}</div>`;
 };
 P.quests = () => {
-  const q = curQ(), mon = mondayOf(today()), groups = [["This week", x => x.when === "week" && x.week >= mon], ["Weekends", x => !!x.date], ["Dates", x => !!x.day], ["This month", x => x.when === "month"], ["This era", x => x.when === "era" && x.q === q]];
+  const q = curQ(), mon = mondayOf(today()), groups = [["This week", x => !qSpan(x) && x.when === "week" && x.week >= mon], ["Trips", x => isAway(x)], ["Weekends and dates", x => !!qSpan(x)], ["This month", x => x.when === "month"], ["This era", x => x.when === "era" && x.q === q]];
   const shown = new Set(); let h = `${head(L("quests"), "Era")}<p class="muted">Trips, courses, people to see. Late still counts.</p>`;
-  groups.forEach(([n, f]) => { const xs = S.quests.filter(x => !shown.has(x.id) && f(x) && x.status !== "dropped"); xs.forEach(x => shown.add(x.id)); if (xs.length) h += `<h3>${n}</h3><div class="card list">${xs.map(questRow).join("")}</div>`; });
+  const byStart = (a, b) => { const p = qSpan(a), r = qSpan(b); return p && r ? (p[0] < r[0] ? -1 : 1) : 0; };
+  groups.forEach(([n, f]) => { const xs = S.quests.filter(x => !shown.has(x.id) && f(x) && x.status !== "dropped").sort(byStart); xs.forEach(x => shown.add(x.id)); if (xs.length) h += `<h3>${n}</h3><div class="card list">${xs.map(questRow).join("")}</div>`; });
   const done = S.quests.filter(x => x.q === q && x.status === "done").length, all = S.quests.filter(x => x.q === q && x.status !== "dropped").length;
   if (all) h += `<p class="tiny"><b>${done} of ${all}</b> done this era.</p>`;
   return h + `<div class="btns">${btn("+ Add a side quest", "quest-add", "week", "primary block")}</div>`;
@@ -372,7 +384,7 @@ P.retro = a => {
   const q = a.q || curQ(), qs = qStart(q), qe = qEnd(q), t = today(), last = qe < t ? qe : t, E = S.eras[q] || {};
   const act = last >= qs ? avgWeek(qs, last) : {}, nq = qNext(q);
   const qq = S.quests.filter(x => x.q === q && x.status !== "dropped"), gs = S.goals.filter(g => g.start <= qe && g.end >= qs);
-  let lg = 0, el = 0; eachDay(qs, last, d => { el++; if (logged(d)) lg++; });
+  let lg = 0, el = 0; eachDay(qs, last, d => { if (awayOn(d)) return; el++; if (logged(d)) lg++; });
   return `${head("‘" + (eraName(q) || qLabel(q)) + "’ " + L("era"), "Era")}<p class="tiny muted">${qLabel(q)}</p><div class="card">${shapeSVG(S.areas, [{ v: planWeek(q), kind: "plan" }, { v: act }], 280)}${legend("Plan", "What happened")}</div>
   <div class="card tiny lh">${esc(L("quests"))} <b>${qq.filter(x => x.status === "done").length} of ${qq.length}</b> · ${esc(L("lockin").toLowerCase())}s <b>${gs.filter(g => g.result === "done").length} of ${gs.length}</b> · days logged <b>${lg} of ${el}</b> · ${esc(L("reclaimed").toLowerCase())} <b>${hh(reclaimed(qs, last).tot)}</b></div>
   <label class="f" for="e-keep">Keep</label><input type="text" id="e-keep" data-in="era-keep" data-q="${q}" value="${esc(E.keep || "")}" placeholder="Morning runs">

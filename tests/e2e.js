@@ -317,7 +317,7 @@ const NATIVE_STUB = () => {
   await p.click('.wdot[data-sat="2026-11-07"]'); await p.fill('#q-title', 'Gokarna long weekend'); await p.click('.sheet [data-qsave]');
   s = await S(p); let qg = s.quests.find(x => x.title === 'Gokarna long weekend'); ok(qg && qg.date === '2026-11-07' && qg.area === 'trips', 'weekend claimed');
   ok(await p.isVisible('.wdot.claimed[data-sat="2026-11-07"]'), 'dot shows claimed');
-  await p.click('.wdot[data-sat="2026-11-07"]'); await p.click('.sheet [data-s=moved]'); s = await S(p); qg = s.quests.find(x => x.id === qg.id); ok(qg.date === '2026-11-14' && qg.moved === 1, 'moved to the next free weekend');
+  await p.click('.wdot[data-sat="2026-11-07"]'); await p.click('.sheet [data-s$="|moved"]'); s = await S(p); qg = s.quests.find(x => x.id === qg.id); ok(qg.date === '2026-11-14' && qg.moved === 1, 'moved to the next free weekend');
   await p.click('[data-act=claim-next]'); await p.fill('#q-title', 'College friends'); await p.click('.sheet [data-qa=friends]'); await p.click('.sheet [data-qsave]');
   s = await S(p); ok(s.quests.some(x => x.title === 'College friends' && x.date === '2026-11-07'), 'claim the next free weekend');
   await p.click('[data-act=go][data-arg=quests]'); ok((await text(p)).includes('Gokarna') && (await text(p)).includes('College friends'), 'side quests list');
@@ -330,15 +330,67 @@ const NATIVE_STUB = () => {
   await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Dentist'); await p.click('.sheet [data-qw=day]'); await p.fill('#q-day', '2026-11-11'); await p.click('.sheet [data-qsave]');
   s = await S(p); const den = s.quests.find(x => x.title === 'Dentist'); ok(den && den.day === '2026-11-11' && !den.date, 'or a date');
   await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Picnic'); await p.click('.sheet [data-qw=day]'); await p.fill('#q-day', '2026-11-29'); await p.click('.sheet [data-qsave]');
-  s = await S(p); ok(s.quests.find(x => x.title === 'Picnic').date === '2026-11-28', 'a Sunday claims its weekend');
+  s = await S(p); const pic = s.quests.find(x => x.title === 'Picnic'); ok(pic.date === '2026-11-28' && pic.day === '2026-11-29' && !pic.to, 'a Sunday date takes only that Sunday');
   const nani = s.quests.find(x => x.title === 'Call Nani');
   await p.click(`[data-act=quest-edit][data-arg="${nani.id}"]`); await p.click('.sheet [data-qw=weekend]'); await p.click('.sheet [data-qs="2026-11-21"]');
   ok((await p.textContent('.toast')).includes('Already planned'), 'a planned weekend cannot be taken twice');
   await p.click('.sheet [data-qs="2026-12-05"]'); await p.click('.sheet [data-qsave]');
   s = await S(p); const n2 = s.quests.find(x => x.id === nani.id); ok(n2.date === '2026-12-05' && n2.title === 'Call Nani' && s.quests.filter(x => x.title === 'Call Nani').length === 1, 'edit a side quest to link it to a weekend');
   await p.click('[data-tab=today]');
-  ok((await p.textContent('.stats .stat:nth-child(2)')).includes('3') && (await p.textContent('.stats')).includes('free weekends left this era'), 'free weekends this era go down as you plan them (8 left, 5 planned)');
-  await p.click('[data-tab=era]'); ok((await text(p)).includes('8 weekends left · 5 planned'), 'Era shows weekends planned');
+  ok((await p.textContent('.stats .stat:nth-child(2)')).includes('3½') && (await p.textContent('.stats')).includes('free weekends left this era'), 'free weekends this era go down as you plan them (8 left, 4½ planned: the Picnic takes only Sunday)');
+  await p.click('[data-tab=era]'); ok((await text(p)).includes('8 weekends left · 4½ planned'), 'Era shows weekends planned, in halves');
+
+  // A weekend is Saturday and Sunday, each with a first and a second half
+  await p.click('[data-act=go][data-arg=horizon]');
+  ok((await p.getAttribute('.wdot[data-sat="2026-11-28"]', 'aria-label')).includes('Saturday free, Sunday Picnic') || (await p.getAttribute('.wdot[data-sat="2026-11-28"]', 'aria-label')).includes('Saturday free; Sunday Picnic'), 'a dot says which day is planned');
+  ok(await p.evaluate(() => { const d = document.querySelector('.wdot[data-sat="2026-11-28"]'); return !d.querySelector('.wh.l.t.on') && d.querySelector('.wh.r.t.on') && d.querySelector('.wh.r.b.on'); }), 'only the Sunday half of the dot is coloured');
+  await p.click('.wdot[data-sat="2026-11-28"]'); ok((await text(p)).includes('Picnic') && await p.isVisible('.sheet [data-free="sat|"]'), 'a half-planned weekend offers the free Saturday');
+  await p.click('.sheet [data-free="sat|"]'); await p.fill('#q-title', 'Cycling'); await p.click('.sheet [data-qa=health]');
+  ok(await p.getAttribute('.sheet [data-qside=sat]', 'aria-pressed') === 'true' && await p.isVisible('.sheet [data-qpart]'), 'it opens on Saturday, with first and second half');
+  await p.click('.sheet [data-qpart=am]'); ok(!(await p.isVisible('.sheet [data-qaway]')), 'a half day is never a trip');
+  await p.click('.sheet [data-qsave]');
+  s = await S(p); const cyc = s.quests.find(x => x.title === 'Cycling'); ok(cyc && cyc.day === '2026-11-28' && cyc.part === 'am' && !cyc.away, 'Saturday first half saved');
+  await p.click('.wdot[data-sat="2026-11-28"]'); ok(await p.isVisible('.sheet [data-free="sat|pm"]') && !(await p.isVisible('.sheet [data-free="sun|"]')), 'then only the Saturday second half is left');
+  await p.click('.sheet [data-free="sat|pm"]'); await p.fill('#q-title', 'Movie with Rohan'); await p.click('.sheet [data-qa=friends]');
+  ok(await p.getAttribute('.sheet [data-qpart=pm]', 'aria-pressed') === 'true' && (await p.getAttribute('.sheet [data-qpart=am]', 'class') || '').includes('busy'), 'the taken half is crossed out');
+  await p.click('.sheet [data-qpart=am]'); ok((await p.textContent('.toast')).includes('Cycling'), 'and cannot be taken twice');
+  await p.click('.sheet [data-qsave]'); s = await S(p); ok(s.quests.find(x => x.title === 'Movie with Rohan').part === 'pm', 'Saturday second half saved');
+  ok(await p.evaluate(() => document.querySelectorAll('.wdot[data-sat="2026-11-28"] .wh.on').length === 4), 'all four slots of that weekend are planned');
+  // Trips: dates from first to last day; logging pauses on them
+  await p.click('[data-act=go][data-arg=quests]');
+  await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Goa'); await p.click('.sheet [data-qa=trips]'); await p.click('.sheet [data-qw=day]');
+  await p.fill('#q-day', '2026-12-17'); await p.fill('#q-to', '2026-12-21');
+  ok(await p.getAttribute('.sheet [data-qaway]', 'aria-pressed') === 'true', 'a trip in Trips is a trip by default');
+  await p.click('.sheet [data-qsave]'); s = await S(p); const goa = s.quests.find(x => x.title === 'Goa');
+  ok(goa && goa.day === '2026-12-17' && goa.to === '2026-12-21' && goa.away === true && goa.date === '2026-12-19', 'trip saved with its first and last day');
+  ok((await text(p)).includes('Thu 17 – Mon 21 Dec') && (await text(p)).includes('Trips'), 'trip listed with its dates');
+  await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Board games'); await p.click('.sheet [data-qw=day]'); await p.fill('#q-day', '2026-12-20'); await p.click('.sheet [data-qsave]');
+  ok((await p.textContent('.toast')).includes('Goa'), 'a trip weekend cannot be taken by something else');
+  await p.click('.sheet [data-close]'); s = await S(p); ok(!s.quests.some(x => x.title === 'Board games' && x.status === 'open' && x.day === '2026-12-20'), 'nothing double-booked');
+  s.quests = s.quests.filter(x => x.title !== 'Board games'); await p.evaluate(v => localStorage.setItem('era-v2', JSON.stringify(v)), s); await p.reload();
+  await p.click('[data-tab=today]'); ok((await p.textContent('.stats .stat:nth-child(2)')).includes('2') && !(await p.textContent('.stats .stat:nth-child(2)')).includes('½'), 'free weekends this era: 2 (6 of 8 planned)');
+  // On the trip: nothing to log, no red, days left out of the numbers
+  await setTime(p, '2026-12-18T20:00:00+05:30');
+  ok(await p.isVisible('.card.trip') && (await text(p)).includes('day 2 of 5') && !(await p.isVisible('[data-act=looks][data-arg="2026-12-18"]')), 'Today on a trip: no dial to confirm');
+  ok(!(await p.isVisible('.redtop')), 'no red on a trip');
+  ok(await p.evaluate(() => Object.keys(window.__era.actualRange('2026-12-17', '2026-12-18')).length === 0), 'trip days count for nothing');
+  await p.click('[data-tab=week]'); ok((await text(p)).includes('On a trip · Goa') && (await text(p)).includes('2 on a trip, not counted'), 'Week shows trip days, not counted');
+  await p.click('[data-tab=today]'); if (await p.isVisible('[data-act=go][data-arg=catchup]')) { await p.click('[data-act=go][data-arg=catchup]'); ok(!(await text(p)).includes('Thu 17 Dec'), 'trip days are not missed days'); await p.click('[data-act=back]'); } else ok(true, 'trip days are not missed days');
+  // Back: one energy check
+  await setTime(p, '2026-12-22T09:00:00+05:30');
+  ok((await text(p)).includes('Back from a trip') && await p.isVisible('[data-act=trip-energy]'), 'energy check after the trip');
+  await p.click(`[data-act=trip-energy][data-arg="${goa.id}|2"]`); s = await S(p); const g2 = s.quests.find(x => x.id === goa.id);
+  ok(g2.back.e === 2 && g2.status === 'done', 'energy saved, trip marked done');
+  ok(!(await text(p)).includes('Back from a trip'), 'asked only once');
+  await p.click('[data-tab=era]'); await p.click('[data-act=go][data-arg=horizon]'); await p.click('[data-act=go][data-arg=quests]'); ok((await text(p)).includes('⚡ recharged'), 'the answer shows on the trip');
+  // Back early
+  await p.click('[data-act=quest-add][data-arg=week]'); await p.fill('#q-title', 'Pondicherry'); await p.click('.sheet [data-qa=trips]'); await p.click('.sheet [data-qw=day]'); await p.fill('#q-day', '2026-12-26'); await p.fill('#q-to', '2026-12-29'); await p.click('.sheet [data-qsave]');
+  await setTime(p, '2026-12-27T10:00:00+05:30'); await p.click('[data-act=trip-back]');
+  s = await S(p); const po = s.quests.find(x => x.title === 'Pondicherry'); ok(po.day === '2026-12-26' && !po.to, 'back early ends the trip yesterday');
+  ok(!(await p.isVisible('.card.trip')) && await p.isVisible('[data-act=looks]') && (await text(p)).includes('Back from a trip'), 'today counts again, with the energy check');
+  await p.click('[data-act=quest][data-arg="' + po.id + '|dropped"]'); s = await S(p); ok(s.quests.find(x => x.id === po.id).status === 'dropped', 'or “We didn\'t go” drops it');
+  await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('era-v2')); s.returned = null; s.lastOpen = '2026-11-05'; localStorage.setItem('era-v2', JSON.stringify(s)); });
+  await setTime(p, '2026-11-05T21:00:00+05:30');
 
   /* ---------------- 8 · Era retro ---------------- */
   section = '8 Era retro';
@@ -437,6 +489,17 @@ const NATIVE_STUB = () => {
   ok(w && w.free && w.blocks.length && w.wleft === 10, 'widget data sent');
   ok(w && !w.blocks.some(b => ['#D2452C', '#E2683F', '#B8336A'].includes(b[2])), 'widget dial has no red');
   const sch = (calls.schedule || []).slice(-1)[0]; ok(sch && sch.daily && sch.once && sch.once.some(o => o.id.startsWith('era-')), 'reminders scheduled, with the era-end one');
+  ok(w && w.dots.length === 10 && w.dots[0].length === 4 && w.wtitle === '10 free weekends left in 2026', 'widget dots have four slots each');
+  await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('era-v2')); s.quests.push({ id: 'trip1', title: 'Coorg', area: 'trips', when: 'date', day: '2026-10-30', to: '2026-11-01', date: '2026-10-31', q: '2026-Q4', status: 'open', moved: 0, created: '2026-10-22' }); localStorage.setItem('era-v2', JSON.stringify(s)); localStorage.removeItem('__calls'); });
+  await p.reload(); calls = await p.evaluate(() => JSON.parse(localStorage.getItem('__calls') || '{}'));
+  const sch2 = calls.schedule.slice(-1)[0], w2 = calls.widget.slice(-1)[0];
+  ok(sch2.away.join() === '2026-10-30,2026-10-31,2026-11-01' && sch2.once.some(o => o.id === 'back-trip1' && o.at === '2026-11-02 10:00' && o.open === 'today'), 'no daily reminder on trip days, an energy check after');
+  ok(w2.awayDays.includes('2026-10-31') && w2.dots[1].every(c => c) && w2.next === 'Coorg, Fri 30 Oct – Sun 1 Nov', 'widgets know the trip');
+  await p.evaluate(() => localStorage.setItem('__pending', JSON.stringify([{ t: 'confirm', d: '2026-10-30' }]))); await setTime(p, '2026-10-30T21:40:00+05:30');
+  s = await S(p); ok(!s.logs['2026-10-30'], '“Looks right” does nothing on a trip day');
+  await p.evaluate(() => localStorage.setItem('__open', 'check')); await p.reload(); ok(!(await text(p)).includes('Era filled') && await p.isVisible('.card.trip'), 'the check opens Today on a trip day');
+  await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('era-v2')); s.quests = s.quests.filter(x => x.id !== 'trip1'); localStorage.setItem('era-v2', JSON.stringify(s)); });
+  await setTime(p, '2026-10-22T21:30:00+05:30');
   await p.evaluate(() => localStorage.setItem('__pending', JSON.stringify([{ t: 'confirm', d: '2026-10-23' }])));
   await setTime(p, '2026-10-23T21:40:00+05:30');
   s = await S(p); ok(s.logs['2026-10-23'] && s.logs['2026-10-23'].src === 'auto', '“Looks right” from the notification logs the day');
@@ -660,4 +723,6 @@ const NATIVE_STUB = () => {
   await browser.close();
   console.log(`passed ${passes}, failed ${fails}`);
   process.exitCode = fails ? 1 : 0;
-})().catch(e => { console.error(e); console.log('page errors:', errsAll.join(' | ')); console.log(`passed ${passes}, failed ${fails + 1} (stopped early)`); process.exit(1); });
+})().catch(async e => { console.error(e); console.log('page errors:', errsAll.join(' | ')); console.log(`passed ${passes}, failed ${fails + 1} (stopped early, in ${section})`);
+  if (curPage && process.env.ERA_SHOTS) { fs.mkdirSync(process.env.ERA_SHOTS, { recursive: true }); await curPage.screenshot({ path: `${process.env.ERA_SHOTS}/stopped.png`, fullPage: true }).catch(() => {}); }
+  process.exit(1); });

@@ -41,8 +41,8 @@ object Reminders {
         return PendingIntent.getBroadcast(ctx, if (kind == "daily") 1 else 2, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun oncePending(ctx: Context, id: String, title: String, text: String): PendingIntent {
-        val i = Intent(ctx, ReminderReceiver::class.java).setAction("once:$id").putExtra("kind", "once").putExtra("title", title).putExtra("text", text)
+    private fun oncePending(ctx: Context, id: String, title: String, text: String, open: String = "era"): PendingIntent {
+        val i = Intent(ctx, ReminderReceiver::class.java).setAction("once:$id").putExtra("kind", "once").putExtra("title", title).putExtra("text", text).putExtra("open", open)
         return PendingIntent.getBroadcast(ctx, 1000 + (id.hashCode() and 0xffff), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -84,7 +84,7 @@ object Reminders {
             val o = once.optJSONObject(i) ?: continue
             val at = runCatching { fmt.parse(o.optString("at"))?.time }.getOrNull() ?: continue
             if (at <= now) continue
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, oncePending(ctx, o.optString("id"), o.optString("title"), o.optString("text")))
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, oncePending(ctx, o.optString("id"), o.optString("title"), o.optString("text"), o.optString("open", "era")))
         }
         prefs.edit().putString("once", once.toString()).apply()
     }
@@ -101,7 +101,14 @@ object Reminders {
         return PendingIntent.getActivity(ctx, code, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    fun notify(ctx: Context, kind: String, title: String?, text: String?) {
+    /** Days of a trip: nothing to log, so the daily recap stays quiet. */
+    fun awayToday(ctx: Context): Boolean {
+        val a = cfg(ctx)?.optJSONArray("away") ?: return false
+        val t = Store.today()
+        return (0 until a.length()).any { a.optString(it) == t }
+    }
+
+    fun notify(ctx: Context, kind: String, title: String?, text: String?, open: String? = null) {
         val nm = channel(ctx) ?: return
         val c = cfg(ctx)
         val b = Notification.Builder(ctx, CHANNEL).setSmallIcon(R.drawable.ic_note).setAutoCancel(true)
@@ -110,6 +117,7 @@ object Reminders {
                 val w = Store.widget(ctx)
                 val today = Store.today()
                 if (w != null && w.optString("date") == today && w.optBoolean("logged")) return // already logged today
+                if (awayToday(ctx)) return // on a trip
                 val dayName = Calendar.getInstance().getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG, Locale.US) ?: "day"
                 val free = if (w != null && w.optString("date") == today) ", " + w.optString("free") + " free" else ""
                 val confirm = PendingIntent.getBroadcast(ctx, 11,
@@ -129,7 +137,7 @@ object Reminders {
                 runCatching { nm.notify(WEEKLY_ID, b.build()) }
             }
             else -> {
-                b.setContentTitle(title ?: "Era").setContentText(text ?: "").setContentIntent(openApp(ctx, "era", 15))
+                b.setContentTitle(title ?: "Era").setContentText(text ?: "").setContentIntent(open?.takeIf { it.isNotEmpty() && it != "era" }?.let { openApp(ctx, it, 17) } ?: openApp(ctx, "era", 15))
                 runCatching { nm.notify(100 + ((title ?: "").hashCode() and 0xfff), b.build()) }
             }
         }
@@ -148,7 +156,7 @@ object Reminders {
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        Reminders.notify(ctx, intent.getStringExtra("kind") ?: "daily", intent.getStringExtra("title"), intent.getStringExtra("text"))
+        Reminders.notify(ctx, intent.getStringExtra("kind") ?: "daily", intent.getStringExtra("title"), intent.getStringExtra("text"), intent.getStringExtra("open"))
     }
 }
 

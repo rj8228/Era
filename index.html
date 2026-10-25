@@ -206,8 +206,11 @@ details summary{cursor:pointer;color:var(--accent);margin:6px 0}
 .jn{font-size:10px;font-weight:700;margin-top:4px;line-height:1.15;hyphens:auto;-webkit-hyphens:auto;min-height:2.3em;letter-spacing:-.2px}
 .jv{font-size:11px;color:var(--muted)}
 .dots{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:6px;margin:6px 0}
-.wdot{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line2);background:transparent;padding:0;margin:auto;display:block}
-.wdot.claimed{border-width:3px}
+.wdot{position:relative;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line2);background:transparent;padding:0;margin:auto;display:block;overflow:hidden}
+.wdot::after{content:"";position:absolute;left:50%;top:0;bottom:0;border-left:1.5px solid var(--line2)}
+.wdot .wh{position:absolute;width:50%;height:50%}
+.wdot .wh.l{left:0}.wdot .wh.r{right:0}.wdot .wh.t{top:0}.wdot .wh.b{bottom:0}
+.wdot .wh.on{background:var(--qc);opacity:.45}.wdot .wh.done{opacity:1}
 /* Paint */
 .paint{display:grid;grid-template-columns:30px repeat(7,minmax(0,1fr));gap:2px;touch-action:none;user-select:none;-webkit-user-select:none;margin:10px 0}
 .pc{height:12px;border-radius:2px}
@@ -217,6 +220,10 @@ details summary{cursor:pointer;color:var(--accent);margin:6px 0}
 .pc.cell{cursor:crosshair}
 .brushes .chip{min-height:34px;font-size:13px}
 .chip.taken{opacity:.55;text-decoration:line-through}
+.seg button.busy{opacity:.45;text-decoration:line-through}
+.dates{display:flex;gap:10px;margin-top:10px}.dates label{flex:1;min-width:0}.dates input{width:100%}
+.card.trip{border-left:4px solid #D9A22B}.tripicon{font-size:26px;line-height:1}
+.dayrow.away{opacity:.85}.dayrow .tripicon{width:42px;text-align:center;font-size:22px}
 /* Lists of shapes */
 .minis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .card.mini{text-align:center;font-size:13px}
