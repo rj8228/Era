@@ -182,22 +182,42 @@ function ownSheet(kind) {
     save(); el.remove(); rerender(); };
   el.querySelector("[data-ok]").onclick = ok; el.querySelector("#own-n").addEventListener("keydown", e => { if (e.key === "Enter") ok(); }); setTimeout(() => el.querySelector("#own-n").focus(), 50);
 }
+/* Add or edit a side quest. When: this week, next week, this month, this era, a weekend, or a date.
+   A date on a Saturday or Sunday claims that weekend. */
 function questSheet(o) {
-  o = o || {}; let when = o.date ? "weekend" : (o.when || "week"), area = S.areas.includes("trips") && o.date ? "trips" : S.areas[0];
-  const body = () => `<label class="f" for="q-title">What</label><input type="text" id="q-title" placeholder="${o.date ? "Gokarna long weekend" : "Dinner with Rohan"}" value="${esc(o.title || "")}">
+  o = o || {}; const ed = o.edit ? S.quests.find(x => x.id === o.edit) : null, single = L("quests").toLowerCase().replace(/s$/, "");
+  let title = ed ? ed.title : (o.title || ""), area = ed ? ed.area : (S.areas.includes("trips") && o.date ? "trips" : S.areas[0]);
+  let when = ed ? (ed.day && !ed.date ? "day" : ed.date ? (ed.day ? "day" : "weekend") : ed.when) : o.date ? "weekend" : (o.when || "week");
+  let sat = ed ? ed.date : o.date || null, day = ed ? ed.day || "" : "";
+  const sats = () => { const list = weekendsFrom(today(), addD(today(), 120)); if (sat && !list.includes(sat)) list.unshift(sat); return list.slice(0, 16); };
+  const opts = () => (o.week ? [["week", "Week of " + fmtS(o.week)]] : [["week", "This week"], ["next", "Next week"]]).concat([["month", "This month"], ["era", "This era"], ["weekend", "A weekend"], ["day", "A date"]]);
+  const body = () => `<label class="f" for="q-title">What</label><input type="text" id="q-title" placeholder="${when === "weekend" ? "Gokarna long weekend" : "Dinner with Rohan"}" value="${esc(title)}">
     <label class="f">Area</label><div class="chips">${S.areas.map(k => `<button class="chip" data-qa="${k}" aria-pressed="${area === k}" style="--cc:${ccol(k)}">${esc(cname(k))}</button>`).join("")}</div>
-    <label class="f">When</label><div class="seg wrap" role="group">${(o.date ? [["weekend", "Weekend of " + fmtS(o.date)]] : []).concat(o.week ? [["week", "Week of " + fmtS(o.week)], ["month", "This month"], ["era", "This era"]] : [["week", "This week"], ["next", "Next week"], ["month", "This month"], ["era", "This era"]]).map(([k, n]) => `<button data-qw="${k}" aria-pressed="${when === k}">${n}</button>`).join("")}</div>
-    <div class="btns"><button class="btn primary block" data-qsave>Save ${esc(L("quests").toLowerCase().replace(/s$/, ""))}</button></div>`;
+    <label class="f">When</label><div class="chips" role="group">${opts().map(([k, n]) => `<button class="chip" data-qw="${k}" aria-pressed="${when === k}">${n}</button>`).join("")}</div>
+    ${when === "weekend" ? `<div class="chips" style="margin-top:10px">${sats().map(s => { const c = claimOf(s), mine = ed && c && c.id === ed.id; return `<button class="chip${c && !mine ? " taken" : ""}" data-qs="${s}" aria-pressed="${sat === s}">${fmtS(s)}${c && !mine ? " · " + esc(c.title.length > 14 ? c.title.slice(0, 13) + "…" : c.title) : ""}</button>`; }).join("")}</div>` : ""}
+    ${when === "day" ? `<input type="date" id="q-day" value="${day}" min="${today()}" style="margin-top:10px" aria-label="Date"><p class="tiny muted" style="margin:4px 0 0">A Saturday or Sunday claims that weekend.</p>` : ""}
+    <div class="btns">${ed ? `<button class="btn warn" data-qdel>Delete</button>` : ""}<button class="btn primary grow" data-qsave>Save ${esc(single)}</button></div>`;
   let saved = false;
-  const el = sheet(o.date ? "Claim " + fmtS(o.date) : "New " + L("quests").toLowerCase().replace(/s$/, ""), body(), () => { if (!saved && el.querySelector("#q-title").value.trim()) doSave(); });
-  const doSave = () => { const title = el.querySelector("#q-title").value.trim(); if (!title) { toast("Write what it is"); return false; }
-    const t = today(), mon = mondayOf(t), wk = o.week && when === "week" ? o.week : when === "next" ? addD(mon, 7) : mon;
-    S.quests.push({ id: uid(), title, area, when: when === "next" ? "week" : when, week: (when === "week" || when === "next") ? wk : null, month: t.slice(0, 7), q: qOf(when === "weekend" ? o.date : wk), date: when === "weekend" ? o.date : null, status: "open", moved: 0, created: t });
-    saved = true; save(); el.remove(); rerender(); toast("Saved " + title); return true; };
-  el.addEventListener("click", e => { const t = e.target.closest("button"); if (!t) return; const keep = el.querySelector("#q-title").value;
-    if (t.dataset.qa) { area = t.dataset.qa; el.querySelector(".body").innerHTML = body(); el.querySelector("#q-title").value = keep; }
-    if (t.dataset.qw) { when = t.dataset.qw; el.querySelector(".body").innerHTML = body(); el.querySelector("#q-title").value = keep; }
-    if (t.hasAttribute("data-qsave")) doSave(); });
+  const el = sheet(ed ? "Edit " + single : o.date ? "Claim " + fmtS(o.date) : "New " + single, body(), () => { if (!saved && !ed && el.querySelector("#q-title").value.trim()) doSave(); });
+  const keep = () => { const ti = el.querySelector("#q-title"); if (ti) title = ti.value; const di = el.querySelector("#q-day"); if (di) day = di.value; };
+  const re = () => { keep(); el.querySelector(".body").innerHTML = body(); };
+  const doSave = () => {
+    keep(); title = title.trim(); if (!title) { toast("Write what it is"); return false; }
+    let w = when, date = null, d = null;
+    if (w === "weekend") { if (!sat) { toast("Pick a weekend"); return false; } date = sat; }
+    if (w === "day") { if (!day) { toast("Pick a date"); return false; } d = day; const dw = dowOf(day); if (dw === 6 || dw === 0) date = dw === 6 ? day : addD(day, -1); }
+    if (date) { const c = claimOf(date); if (c && (!ed || c.id !== ed.id)) { toast(fmtS(date) + " is already: " + c.title); return false; } }
+    const t = today(), mon = mondayOf(t), wk = o.week && w === "week" ? o.week : w === "next" ? addD(mon, 7) : mon;
+    const f = { title, area, when: w === "next" ? "week" : w === "day" && date ? "weekend" : w, week: (w === "week" || w === "next") ? wk : null, month: t.slice(0, 7), q: qOf(d || date || wk), date, day: d };
+    if (ed) Object.assign(ed, f); else S.quests.push(Object.assign({ id: uid() }, f, { status: "open", moved: 0, created: t }));
+    saved = true; save(); el.remove(); rerender(); toast((ed ? "Updated " : "Saved ") + title + (date ? " · weekend of " + fmtS(date) : d ? " · " + fmtD(d) : "")); return true;
+  };
+  el.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.qa) { area = b.dataset.qa; re(); }
+    if (b.dataset.qw) { when = b.dataset.qw; re(); }
+    if (b.dataset.qs) { const c = claimOf(b.dataset.qs); if (c && (!ed || c.id !== ed.id)) { toast("Already planned: " + c.title); return; } sat = b.dataset.qs; re(); }
+    if (b.hasAttribute("data-qsave")) doSave();
+    if (b.hasAttribute("data-qdel")) { S.quests = S.quests.filter(x => x !== ed); saved = true; save(); el.remove(); rerender(); toast("Deleted " + ed.title); } });
 }
 function satSheet(sat) {
   const c = claimOf(sat); if (!c) return questSheet({ date: sat });
@@ -207,7 +227,8 @@ function satSheet(sat) {
 function questAct(id, st) {
   const x = S.quests.find(y => y.id === id); if (!x) return;
   if (st === "moved") { x.moved = (x.moved || 0) + 1;
-    if (x.date) { let d = addD(x.date, 7); while (claimOf(d) && claimOf(d) !== x) d = addD(d, 7); x.date = d; x.q = qOf(d); }
+    if (x.date) { let d = addD(x.date, 7); while (claimOf(d) && claimOf(d) !== x) d = addD(d, 7); if (x.day) x.day = addD(x.day, diffD(x.date, d)); x.date = d; x.q = qOf(d); }
+    else if (x.day) { x.day = addD(x.day, 7); x.q = qOf(x.day); }
     else if (x.when === "week") x.week = addD(x.week, 7); else if (x.when === "month") x.when = "era"; else x.q = qNext(x.q);
     toast("Moved. It keeps its place in line."); }
   else { x.status = st; x.doneAt = today(); if (st === "done") toast(x.moved ? "Done, a bit late. Late still counts." : "Done"); }
@@ -263,6 +284,7 @@ const ACT = {
     if (!blk) { toast("No free hour left today to move"); return; }
     bl = setRange(bl, blk.e - 1, blk.e, { k: g.area, a: "study", goal: g.id, src: "edited" }); S.logs[t] = Object.assign({}, S.logs[t] || {}, { blocks: bl, src: "edited", at: Date.now() }); save(); toast("+1 h " + g.title + ", from " + cname(blk.k).toLowerCase()); rerender(); },
   quest: a => { const [id, st] = a.split("|"); questAct(id, st); },
+  "quest-edit": id => questSheet({ edit: id }),
   "quest-add": w => questSheet(w === "nextweek" ? { when: "week", week: addD(weekOf || mondayOf(today()), 7) } : { when: w }),
   seen: k => { S.seen[k] = 1; save(); rerender(); },
   resume: () => { S.pause = null; save(); rerender(); toast("The push is back on"); },

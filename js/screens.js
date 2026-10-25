@@ -6,7 +6,8 @@ const head = (title, backTxt) => `<div class="subhd"><button class="backbtn" dat
 const link = (label, sub, act, arg, extra) => `<button class="rowlink" data-act="${act}"${arg != null ? ` data-arg="${esc(arg)}"` : ""}><span class="grow"><b>${label}</b>${sub ? `<br><span class="tiny muted">${sub}</span>` : ""}${extra || ""}</span><span class="chev" aria-hidden="true">›</span></button>`;
 const chip = (t, act, arg, on, style) => `<button class="chip" data-act="${act}" data-arg="${esc(arg)}" aria-pressed="${!!on}"${style ? ` style="${style}"` : ""}>${t}</button>`;
 const stepper = (act, arg, v, lbl, unit) => `<span class="stp"><button class="step" data-act="${act}" data-arg="${esc(arg)}|-" aria-label="Less ${esc(lbl)}">−</button><b class="val">${h1(v)}${unit == null ? " h" : unit}</b><button class="step" data-act="${act}" data-arg="${esc(arg)}|+" aria-label="More ${esc(lbl)}">+</button></span>`;
-const statsCard = () => { const t = today(), q = curQ(); return `<div class="card dark"><div class="stats"><div class="stat"><b>${Math.max(0, Math.round(freeLeftWeek()))}</b><span>free hours left this week</span></div><div class="stat"><b>${weekendsLeft(qEnd(q))}</b><span>weekends left this era</span></div><div class="stat"><b>${weekendsLeft(t.slice(0, 4) + "-12-31")}</b><span>weekends left in ${t.slice(0, 4)}</span></div></div></div>`; };
+const freeWeekends = to => weekendsFrom(today(), to).filter(s => !claimOf(s)).length;
+const statsCard = () => { const t = today(), q = curQ(); return `<div class="card dark"><div class="stats"><div class="stat"><b>${Math.max(0, Math.round(freeLeftWeek()))}</b><span>free hours left this week</span></div><div class="stat"><b>${freeWeekends(qEnd(q))}</b><span>free weekends left this era</span></div><div class="stat"><b>${freeWeekends(t.slice(0, 4) + "-12-31")}</b><span>free weekends left in ${t.slice(0, 4)}</span></div></div></div>`; };
 const pausedBanner = () => paused() ? `<div class="card banner">${S.pause.forever ? "The push is paused until you turn it back on." : "The push is paused until " + fmtS(S.pause.until) + "."} Logging still works.<div class="btns">${btn("Resume now", "resume", null, "sm")}</div></div>` : "";
 function brutalBanner() { if (!brutal()) return ""; const o = overItems(); if (!o.length) return ""; const it = o[0], st = lessNow(it); return `<div class="card redtop slim"><b>↓ ${esc(cname(it.k))}: ${hh(st.wtd)} this week</b><span class="tiny">${hh(st.wtd - st.aim)} over your aim. That's ${costOf(st.wtd - st.aim, it.swap || S.areas[0])}.</span></div>`; }
 function miniDay(bl, txt, free) { return `<div class="miniday">${dialSVG(bl, 84, { center: free != null ? hh(free) : null })}<div class="tiny muted">${txt}</div></div>`; }
@@ -112,7 +113,7 @@ P.today = () => {
   // Active lock-ins
   S.goals.filter(g => !g.closed && g.start <= t && g.end >= t).forEach(g => { const done = goalDone(g), days = Math.max(1, daysIn(t, g.end)); h += `<div class="card"><h3>${esc(g.title)}</h3><div class="bar" style="margin:8px 0"><i style="width:${Math.min(100, done / g.total * 100)}%;background:${ccol(g.area)}"></i></div><p class="tiny muted">${h1(done)} of ${g.total} h · ${hh(Math.max(0, (g.total - done) / days))} a day keeps you on track</p>${btn("Log 1 h of " + esc(g.title.toLowerCase()), "goal-hour", g.id, "primary block sm")}</div>`; });
   // Side quests this week
-  const mon = mondayOf(t), open = S.quests.filter(x => x.status === "open" && ((x.when === "week" && x.week === mon) || (x.date && x.date >= mon && x.date <= addD(mon, 6))));
+  const mon = mondayOf(t), open = S.quests.filter(x => x.status === "open" && inWeek(x, mon));
   if (open.length) h += `<h2>${esc(L("quests"))} this week</h2><div class="card list">${open.map(questRow).join("")}</div>`;
   if ([5, 6, 0].includes(dowOf(t)) && !(S.retros[mon] && S.retros[mon].at)) h += link(esc(L("week")), "3 minutes on how the week went", "go", "receipt");
   if (NATIVE() && NATIVE().setWidget && !S.seen.widgetTip) h += `<div class="card tip"><b>Add Era to your home screen</b><p class="tiny" style="margin:4px 0 0">Long-press your home screen → Widgets → Era. Log a normal day with one tap, see today's dial and the weekends left. Widgets stay neutral: no red.</p><div class="btns">${btn("Got it", "seen", "widgetTip", "sm")}</div></div>`;
@@ -127,9 +128,10 @@ function screenTimeCard(d) {
   ${apps.map(a => { const k = appCat(a.pkg, a.hint); return `<div class="lrow"><span>${esc(a.label || a.pkg)}</span><div class="bar"><i style="width:${a.min / max * 100}%;background:${k ? ccol(k) : "var(--line2)"}"></i></div><b>${hmin(a.min)}</b></div>${k && isArea(k) ? `<div class="tiny muted" style="margin:-2px 0 2px">counts for ${esc(cname(k))}, not against you</div>` : ""}`; }).join("")}
   <p class="tiny" style="margin:6px 0 0">${tot < aim ? `<b>${hmin(aim - tot)} left today.</b>` : `<b>${hmin(tot - aim)} over today.</b>`}</p></div>`;
 }
+const inWeek = (x, mon) => { const sun = addD(mon, 6); return (x.when === "week" && x.week === mon) || (x.date && x.date >= addD(mon, -1) && x.date <= sun) || (x.day && x.day >= mon && x.day <= sun); };
 function questRow(x) {
-  const when = x.date ? "weekend of " + fmtS(x.date) : x.when === "week" ? "this week" : x.when === "month" ? "this month" : "this era";
-  return `<div class="li"><span class="grow"><b>${esc(x.title)}</b><br><span class="tiny muted">${sw(ccol(x.area))}${esc(cname(x.area))} · ${when}${x.moved ? " · moved " + x.moved + "×" : ""}</span></span>${x.status === "open" ? btn("Done", "quest", x.id + "|done", "sm") + btn("Move", "quest", x.id + "|moved", "sm") + `<button class="icon-btn" data-act="quest" data-arg="${x.id}|dropped" aria-label="Drop ${esc(x.title)}">✕</button>` : `<span class="tag ${x.status === "done" ? "good" : ""}">${x.status}</span>`}</div>`;
+  const when = x.day ? "on " + fmtD(x.day) : x.date ? "weekend of " + fmtS(x.date) : x.when === "week" ? "this week" : x.when === "month" ? "this month" : "this era";
+  return `<div class="li"><button class="grow blkbtn" data-act="quest-edit" data-arg="${x.id}" aria-label="Edit ${esc(x.title)}"><b>${esc(x.title)}</b><br><span class="tiny muted">${sw(ccol(x.area))}${esc(cname(x.area))} · ${when}${x.moved ? " · moved " + x.moved + "×" : ""}</span></button>${x.status === "open" ? btn("Done", "quest", x.id + "|done", "sm") + btn("Move", "quest", x.id + "|moved", "sm") + `<button class="icon-btn" data-act="quest" data-arg="${x.id}|dropped" aria-label="Drop ${esc(x.title)}">✕</button>` : `<span class="tag ${x.status === "done" ? "good" : ""}">${x.status}</span>`}</div>`;
 }
 
 /* What Era filled */
@@ -208,7 +210,7 @@ P.week = () => {
   const R = S.retros[mon] || {};
   h += R.at ? link(esc(L("week")) + " done", esc(R.change ? "Change: " + R.change : "Saved"), "go", "receipt") : `<div class="btns">${btn("Do the " + esc(L("week").toLowerCase()), "go", "receipt", "primary block")}</div>`;
   h += `<h2>Days</h2><div class="card list">${[...Array(7)].map((_, i) => addD(mon, i)).filter(d => d <= t).map(d => { const lg = logged(d), bl = dayBlocks(d); return `<button class="li dayrow" data-act="go" data-arg="dial" data-d="${d}">${dialSVG(bl, 42)}<span class="grow"><b>${fmtD(d)}</b><br><span class="tiny muted">${lg ? (S.logs[d].good ? esc(S.logs[d].good) : "logged · " + hh(dayFree(bl)) + " free") : "not logged · counts as usual"}</span></span><span class="chev">›</span></button>`; }).join("")}</div>`;
-  const qs = S.quests.filter(x => (x.when === "week" && x.week === mon) || (x.date && x.date >= mon && x.date <= sun));
+  const qs = S.quests.filter(x => inWeek(x, mon));
   if (qs.length) h += `<h2>${esc(L("quests"))} this week</h2><div class="card list">${qs.map(questRow).join("")}</div>`;
   return h;
 };
@@ -254,7 +256,7 @@ P.vibe = () => {
 };
 P.nextweek = () => {
   const mon = weekOf || mondayOf(today()), nx = addD(mon, 7);
-  const qs = S.quests.filter(x => x.status === "open" && ((x.when === "week" && x.week === nx) || (x.date && x.date >= nx && x.date <= addD(nx, 6))));
+  const qs = S.quests.filter(x => x.status === "open" && inWeek(x, nx));
   return `${head("Next week", "Back")}<p class="muted">2 or 3 small things that move your shape.</p><div class="card list">${qs.length ? qs.map(questRow).join("") : `<p class="tiny muted" style="margin:0">Nothing yet.</p>`}</div>
   <div class="btns">${btn("+ Add a side quest", "quest-add", "nextweek", "block")}${btn("Save " + esc(L("week").toLowerCase()), "save-retro", null, "primary block")}</div>`;
 };
@@ -300,7 +302,7 @@ P.era = () => {
   h += `<div class="card">${shapeSVG(S.areas, [{ v: tmplWeek(), kind: "plan" }, { v: planWeek(q, t) }], 300, { label: "Your normal week against this era's plan" })}${legend("Your normal week", "This era's plan")}</div>`;
   h += `<div class="card list">${link(esc(L("shift")), nmv ? "Drag hour beads · " + nmv + " change" + (nmv > 1 ? "s" : "") : "Drag hour beads between areas", "go", "beads")}
   ${link(esc(L("lockin")) + " for a goal", act.length ? esc(act[0].title) + " · " + h1(goalDone(act[0])) + " of " + act[0].total + " h" : "Make room for a big goal, like an exam", "go", "lock1")}
-  ${link("Weekends and " + esc(L("quests").toLowerCase()), sats.length + " weekends left · " + claimed + " claimed", "go", "horizon", `<div style="margin-top:6px">${dotsHTML(sats.slice(0, 10), { static: 1 })}</div>`)}
+  ${link("Weekends and " + esc(L("quests").toLowerCase()), sats.length + " weekends left · " + claimed + " planned", "go", "horizon", `<div style="margin-top:6px">${dotsHTML(sats.slice(0, 10), { static: 1 })}</div>`)}
   ${link("‘" + esc(eraName(q) || "This era") + "’ " + esc(L("era")), "What happened against the plan", "go", "retro")}
   ${link("Past eras", "Look back, and do a retro for any of them", "go", "pasteras")}</div>`;
   return h;
@@ -353,12 +355,12 @@ P.horizon = () => {
   const t = today(), y = +t.slice(0, 4), a = weekendsFrom(t, y + "-12-31"), b = weekendsFrom((y + 1) + "-01-01", (y + 1) + "-12-31");
   const up = S.quests.filter(x => x.date && x.date >= addD(t, -1) && x.status !== "dropped").sort((p, q) => p.date < q.date ? -1 : 1);
   return `${head("Weekends left", "Era")}<p class="muted">One dot per weekend. Tap a free one to claim it.</p>
-  <div class="card"><h3>${y} · ${a.length} left</h3>${dotsHTML(a)}<h3 style="margin-top:12px">${y + 1} · ${b.length}</h3>${dotsHTML(b)}</div>
+  <div class="card"><h3>${y} · ${a.length} left${a.filter(claimOf).length ? ", " + a.filter(claimOf).length + " planned" : ""}</h3>${dotsHTML(a)}<h3 style="margin-top:12px">${y + 1} · ${b.length}</h3>${dotsHTML(b)}</div>
   ${up.length ? `<div class="card list">${up.map(x => `<button class="li" data-act="sat" data-arg="${x.date}"><span class="grow"><b>${fmtS(x.date)}</b> ${esc(x.title)}</span><span class="tiny muted">${esc(cname(x.area))}${x.status === "done" ? " ✓" : ""}</span></button>`).join("")}</div>` : ""}
   <div class="btns">${btn("Claim a weekend", "claim-next", null, "block")}${btn("All " + esc(L("quests").toLowerCase()), "go", "quests", "block")}</div>`;
 };
 P.quests = () => {
-  const q = curQ(), mon = mondayOf(today()), groups = [["This week", x => x.when === "week" && x.week >= mon], ["Weekends", x => !!x.date], ["This month", x => x.when === "month"], ["This era", x => x.when === "era" && x.q === q]];
+  const q = curQ(), mon = mondayOf(today()), groups = [["This week", x => x.when === "week" && x.week >= mon], ["Weekends", x => !!x.date], ["Dates", x => !!x.day], ["This month", x => x.when === "month"], ["This era", x => x.when === "era" && x.q === q]];
   const shown = new Set(); let h = `${head(L("quests"), "Era")}<p class="muted">Trips, courses, people to see. Late still counts.</p>`;
   groups.forEach(([n, f]) => { const xs = S.quests.filter(x => !shown.has(x.id) && f(x) && x.status !== "dropped"); xs.forEach(x => shown.add(x.id)); if (xs.length) h += `<h3>${n}</h3><div class="card list">${xs.map(questRow).join("")}</div>`; });
   const done = S.quests.filter(x => x.q === q && x.status === "done").length, all = S.quests.filter(x => x.q === q && x.status !== "dropped").length;
