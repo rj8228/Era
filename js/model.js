@@ -355,13 +355,14 @@ function stSlots(d) {
 }
 function stTotal(d) { const v = stDay(d); if (!v || !v.apps) return null; return v.apps.reduce((a, x) => a + x.min, 0); }
 /* Your usual day, corrected by what the phone saw: a free half hour with 20+ minutes in a mapped app
-   becomes that app's category; a usual less-of half hour with almost no phone use is marked to check. */
+   becomes that app's category (so does usual sleep time: you weren't asleep); 10–19 minutes in free
+   time is marked to check. */
 function autoFill(d) {
   let bl = tmplBlocks(d); const sl = stSlots(d); if (!sl) return bl;
   for (let i = 0; i < 48; i++) {
     const s = i / 2, e = s + 0.5, cur = bl.find(b => b.s <= s + 1e-6 && b.e >= e - 1e-6); if (!cur) continue;
     let best = null, bm = 0; for (const k in sl) if (sl[k][i] > bm) { bm = sl[k][i]; best = k; }
-    if (isFree(cur.k) && best && bm >= 20 && best !== cur.k) bl = setRange(bl, s, e, { k: best, a: best === "social" ? "scroll" : best === "tv" ? "tv" : undefined, src: "phone" });
+    if ((isFree(cur.k) || cur.k === "sleep") && best && bm >= 20 && best !== cur.k) bl = setRange(bl, s, e, { k: best, a: best === "social" ? "scroll" : best === "tv" ? "tv" : undefined, src: "phone" });
     else if (isFree(cur.k) && best && bm >= 10 && best !== cur.k && !cur.check) { const { s: _s, e: _e, ...rest } = cur; bl = setRange(bl, s, e, { ...rest, check: 1 }); }
   }
   return bl;
