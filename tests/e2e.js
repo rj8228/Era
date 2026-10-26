@@ -132,7 +132,7 @@ const NATIVE_STUB = () => {
   ok(await p.isVisible('#scard'), 'swipe card');
   let n = 0; while ((await p.textContent('#scard .stime')).trim() !== '6–7 pm' && n++ < 12) await yes(p);
   await p.click('[data-act=sw-no]'); ok(await p.isVisible('.sheet .actgrid'), 'changed opens the picker');
-  await p.click('.sheet [data-pa=gym]'); await p.click('.sheet [data-pt="to|-"]');
+  await p.click('.sheet [data-pa=gym]'); await p.fill('.sheet #pk-to', '18:30');
   ok((await p.textContent('.sheet .body')).includes('Counts for Health 0.5 h'), 'picker shows what it counts for');
   await p.click('.sheet [data-psave]');
   let d = await p.evaluate(() => window.__era.draft()); ok(d.blocks.some(b => b.s === 18 && b.e === 18.5 && b.k === 'health'), 'split 6–6:30 pm into Health');
@@ -508,6 +508,35 @@ const NATIVE_STUB = () => {
   await p.click('[data-act=back]');
   await p.click('[data-tab=me]'); await p.click('[data-act=go][data-arg=m_backup]'); await p.click('[data-act=export]');
   calls = await p.evaluate(() => JSON.parse(localStorage.getItem('__calls') || '{}')); ok(calls.saveFile && calls.saveFile[0].n.startsWith('era-backup-'), 'backup saved through Android');
+  ok(errs.length === 0, 'no page errors: ' + errs.join(' | '));
+  await p.context().close();
+
+  /* ---------------- 13 · Late nights ---------------- */
+  section = '13 Late nights';
+  const ST2 = { apps: [{ pkg: 'com.instagram.android', label: 'Instagram', hint: 'social', min: 110 }], slots: { 'com.instagram.android': slots(0, 2, 28).map((v, i) => i === 4 ? 8 : v) } };
+  p = await newPage({ native: true, init: { fn: st => { if (!localStorage.getItem('__st')) localStorage.setItem('__st', JSON.stringify({ '2026-10-21': st })); }, arg: ST2 } });
+  await onboard(p);
+  // Era fills from the normal week: the Office preset sleeps from 12 am
+  await p.click('[data-act=go][data-arg=fill]');
+  ok((await text(p)).includes('last night, 12–7 am') && (await text(p)).includes('Tap any block'), 'the day starts with last night');
+  await p.click('[data-act=pick][data-arg="0"]'); ok(await p.isVisible('.sheet #pk-from') && await p.isVisible('.sheet #pk-to'), 'tap a filled block to change it, with times');
+  await p.click('.sheet [data-pa=scroll]'); await p.fill('.sheet #pk-to', '02:00');
+  ok((await p.textContent('.sheet .body')).includes('Counts for Social media 2 h') && (await p.textContent('.sheet .body')).includes('The rest stays Sleep'), 'scrolling 12–2 am, the rest stays sleep');
+  await p.click('.sheet [data-pusual]'); await p.click('.sheet [data-psave]');
+  let ln = await p.evaluate(() => window.__era.draft()); ok(ln.blocks[0].s === 0 && ln.blocks[0].e === 2 && ln.blocks[0].k === 'social' && ln.blocks[1].k === 'sleep' && ln.blocks[1].s === 2, '12–2 am is social media, sleep from 2');
+  s = await S(p); ok(s.week.wd[0].s === 0 && s.week.wd[0].e === 2 && s.week.wd[0].a === 'scroll' && s.week.preset === 'custom', '“Usually like this” changes the normal workday');
+  ok(await p.evaluate(() => { const b = window.__era.autoFill('2026-10-23')[0]; return b.k === 'social' && b.e === 2; }), 'so the next workday is filled that way');
+  // Add something anywhere; until 12 am is the end of the day
+  await p.click('[data-act=pick-add]'); await p.click('.sheet [data-pa=tv]'); await p.fill('.sheet #pk-from', '23:00'); await p.fill('.sheet #pk-to', '00:00'); await p.click('.sheet [data-psave]');
+  ln = await p.evaluate(() => window.__era.draft()); ok(ln.blocks.some(b => b.s === 23 && b.e === 24 && b.a === 'tv'), 'add a block from 11 pm to midnight');
+  await p.click('[data-act=pick-add]'); await p.click('.sheet [data-pa=gym]'); await p.fill('.sheet #pk-from', '23:00'); await p.fill('.sheet #pk-to', '01:00');
+  ok((await p.textContent('.sheet .body')).includes('Until is before From'), 'past midnight is explained');
+  await p.click('.sheet [data-psave]'); ok((await p.textContent('.toast')).includes("tomorrow's recap"), 'and not saved');
+  await p.click('.sheet [data-close]'); await p.click('[data-act=save-draft]'); s = await S(p); ok(s.logs['2026-10-22'].blocks[0].k === 'social', 'day saved');
+  // With screen time, phone use in usual sleep time isn't sleep
+  await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('era-v2')); s.st.on = true; s.week = { preset: 'office', workdays: [1, 2, 3, 4, 5], wd: s.week.wd.slice(1).map((b, i) => i === 0 ? { s: 0, e: b.e, a: 'sleep' } : b), we: s.week.we }; localStorage.setItem('era-v2', JSON.stringify(s)); }); await p.reload();
+  const af = await p.evaluate(() => window.__era.autoFill('2026-10-21'));
+  ok(af[0].k === 'social' && af[0].s === 0 && af[0].e === 2 && af[0].src === 'phone' && af[1].k === 'sleep' && af[1].s === 2, 'Instagram at 12–2 am counts as social media, sleep from 2');
   ok(errs.length === 0, 'no page errors: ' + errs.join(' | '));
   await p.context().close();
 

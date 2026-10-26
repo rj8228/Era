@@ -144,13 +144,15 @@ function questRow(x) {
 }
 
 /* What Era filled */
+const lastNight = b => b.s === 0 && b.e <= 12 ? "last night, " : "";
 P.fill = a => {
   const d = a.d || today(); ensureDraft(d, true);
   const rows = draft.blocks.map((b, i) => { const src = b.check ? "check" : b.src === "phone" ? "Screen time" : b.src === "edited" ? "You changed it" : b.src === "auto" || b.src === "usual" ? "Your usual" : "Logged"; const ph = b.src === "phone" ? stPhoneText(d, b) : "";
-    return `<div class="li"><i class="vbar" style="background:${ccol(b.k)}"></i><span class="grow"><b>${esc(ph || blockLabel(b))}</b><br><span class="tiny muted">${span(b.s, b.e)} · ${src === "check" ? "phone and usual disagree" : src}</span></span>${b.check ? `<span class="pdot" aria-label="Check this one"></span>` : "✓"}</div>`; }).join("");
+    return `<button class="li" data-act="pick" data-arg="${i}"><i class="vbar" style="background:${ccol(b.k)}"></i><span class="grow"><b>${esc(ph || blockLabel(b))}</b><br><span class="tiny muted">${lastNight(b)}${span(b.s, b.e)} · ${src === "check" ? "phone and usual disagree" : src}</span></span>${b.check ? `<span class="pdot" aria-label="Check this one"></span>` : "✓"}<span class="chev" aria-hidden="true">›</span></button>`; }).join("");
   const checks = draft.blocks.filter(b => b.check).length;
   return `${head(DOWL[dowOf(d)], d === today() ? "Today" : "Back")}<p class="muted">${fmtS(d)} · filled from your ${stSlots(d) ? "phone and your " : ""}usual ${DOWL[dowOf(d)]}</p>
-  <div class="card list"><h3>Era filled ${checks ? "most of" : ""} ${d === today() ? "today" : "this day"}</h3>${checks ? `<p class="tiny muted">Check the ${checks === 1 ? "one" : checks} with a dot</p>` : ""}${rows}</div>
+  <div class="card list"><h3>Era filled ${checks ? "most of" : ""} ${d === today() ? "today" : "this day"}</h3><p class="tiny muted">${checks ? `Check the ${checks === 1 ? "one" : checks} with a dot. ` : ""}Tap any block to change it.</p>${rows}</div>
+  ${btn("+ Add something", "pick-add", null, "block")}
   <div class="btns">${btn("Looks right", "save-draft", null, "primary block")}${btn("Swipe through to check", "swipe", d, "block")}<button class="btn block" data-act="go" data-arg="dial" data-d="${d}">Fine-tune on the dial</button></div>`;
 };
 function stPhoneText(d, b) { const v = stDay(d); if (!v) return ""; const apps = (v.apps || []).filter(x => appCat(x.pkg, x.hint) === b.k); let m = 0; const names = []; apps.forEach(x => { let mm = 0; for (let i = Math.round(b.s * 2); i < Math.round(b.e * 2); i++) mm += (v.slots[x.pkg] || [])[i] || 0; if (mm > 5) { m += mm; names.push(x.label); } }); return names.length ? names.slice(0, 2).join(", ") + " " + hmin(m) : ""; }
@@ -174,12 +176,13 @@ P.dial = a => {
   <div class="card dialcard"><div class="dialwrap" id="dialwrap">${dialSVG(bl, 300, { edit: true, center: hh(dayFree(bl)), sub: "free", id: "dialsvg" })}</div><p class="tiny muted center" id="dialtot">24 h · ${hh(dayFree(bl))} free</p></div>
   ${mism.map(x => `<div class="card mism"><b>${span(bl[x.i].s, bl[x.i].e)} · ${esc(cname(bl[x.i].k))}</b><p class="tiny" style="margin:4px 0">Your phone shows <b>${hmin(x.m.min)} of ${esc(cname(x.m.k).toLowerCase())}</b> in this block.</p>${btn("Check it", "mismatch", x.i, "sm")}</div>`).join("")}
   <div class="card list" id="blist">${blockList(bl)}</div>
+  ${btn("+ Add something", "pick-add", null, "block")}
   <label class="f" for="d-good">One good thing</label><input type="text" id="d-good" data-in="good" value="${esc(draft.good || "")}" placeholder="First run in weeks">
   <div class="seg" role="group" aria-label="Energy" style="margin-top:10px">${[["low", "Drained"], ["okay", "Okay"], ["high", "Full of it"]].map(([k, n]) => `<button data-act="energy" data-arg="${k}" aria-pressed="${draft.energy === k}">${n}</button>`).join("")}</div>
   <div class="btns sticky">${btn("Reset to usual", "reset-day")}${btn("Save day", "save-draft", null, "primary grow")}</div>`;
 };
 function blockList(bl) {
-  return bl.map((b, i) => `<div class="li blk"><i class="vbar" style="background:${ccol(b.k)}"></i><button class="grow blkbtn" data-act="pick" data-arg="${i}"><b>${esc(blockLabel(b))}</b>${b.sh ? ` <span class="tag blue">+ ${esc(cname(b.sh))} shared</span>` : ""}${b.wo ? ` <span class="tag">${{ yes: "worth it", meh: "meh", no: "not worth it" }[b.wo]}</span>` : ""}<br><span class="tiny muted">${span(b.s, b.e)} · ${hh(b.e - b.s)}</span></button>${i < bl.length - 1 ? `<span class="stp"><button class="step" data-act="edge" data-arg="${i}|-" aria-label="End ${esc(blockLabel(b))} earlier">−</button><button class="step" data-act="edge" data-arg="${i}|+" aria-label="End ${esc(blockLabel(b))} later">+</button></span>` : ""}</div>`).join("");
+  return bl.map((b, i) => `<div class="li blk"><i class="vbar" style="background:${ccol(b.k)}"></i><button class="grow blkbtn" data-act="pick" data-arg="${i}"><b>${esc(blockLabel(b))}</b>${b.sh ? ` <span class="tag blue">+ ${esc(cname(b.sh))} shared</span>` : ""}${b.wo ? ` <span class="tag">${{ yes: "worth it", meh: "meh", no: "not worth it" }[b.wo]}</span>` : ""}<br><span class="tiny muted">${lastNight(b)}${span(b.s, b.e)} · ${hh(b.e - b.s)}</span></button>${i < bl.length - 1 ? `<span class="stp"><button class="step" data-act="edge" data-arg="${i}|-" aria-label="End ${esc(blockLabel(b))} earlier">−</button><button class="step" data-act="edge" data-arg="${i}|+" aria-label="End ${esc(blockLabel(b))} later">+</button></span>` : ""}</div>`).join("");
 }
 
 /* Catch up */

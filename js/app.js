@@ -90,32 +90,44 @@ function countFor(k, w) {
   if (S.shareWith && w) { const wk = w === "partner" ? (isArea("partner") ? "partner" : isArea("family") ? "family" : null) : (isArea(w) ? w : null); if (wk && wk !== k) return { k: wk, sh: isArea(k) ? k : null }; }
   return { k, sh: null };
 }
+/* Change a block, or add one anywhere (i == null). Times are half hours; the day runs from 12 am
+   (last night) to 12 am tonight. "Usually like this" also changes the normal week. */
+const t2v = h => pad(Math.floor(h + 1e-9) % 24) + ":" + pad(Math.round((h - Math.floor(h + 1e-9)) * 60));
+const v2t = (v, end) => { if (!v) return null; const [H, M] = v.split(":").map(Number); const h = r2(H + (M || 0) / 60); return end && h === 0 ? 24 : h; };
 function pickSheet(i, mode) {
-  const b = draft.blocks[i]; if (!b) return;
-  let a = b.a || null, kk = b.a ? null : b.k, w = b.w || "", from = b.s, to = b.e;
+  const d = draft.d, add = i == null, nh = r2(nowH());
+  const b = add ? (d === today() ? { s: Math.max(0, Math.floor(nh) - 1), e: Math.max(1, Math.floor(nh)), k: "other" } : { s: 20, e: 21, k: "other" }) : draft.blocks[i]; if (!b) return;
+  let a = add ? null : b.a || null, kk = add ? null : b.a ? null : b.k, w = add ? "" : b.w || "", from = b.s, to = b.e, usual = false;
   const catNow = () => kk || (a ? catOf(a) : b.k);
   const cats = S.areas.concat(S.less.map(x => x.k), NEUTRAL.filter(k => !isLess(k)));
-  const body = () => { const c = countFor(catNow(), w);
-    return `<p class="tiny muted">${span(from, to)}${mode === "swipe" ? " · you swiped “changed”" : ""}</p><h3>What did this time really go to?</h3>
+  const kind = isWorkday(d) ? "workday" : "day off";
+  const body = () => { const c = countFor(catNow(), w), bad = !(to > from);
+    return `<p class="tiny muted">${add ? fmtD(d) : span(from, to)}${mode === "swipe" ? " · you swiped “changed”" : ""}</p><h3>${add ? "What did you do?" : "What did this time really go to?"}</h3>
     <div class="actgrid">${PICK_ACTS.map(x => `<button class="actb" data-pa="${x}" aria-pressed="${!kk && a === x}"><i style="background:${ccol(catOf(x))}"></i>${esc(ACTS[x].n)}</button>`).join("")}</div>
     <details${kk ? " open" : ""}><summary class="tiny">Or count it as…</summary><div class="chips">${cats.map(k => `<button class="chip" data-pk="${k}" aria-pressed="${kk === k}" style="--cc:${ccol(k)}">${esc(cname(k))}</button>`).join("")}</div></details>
     ${S.shareWith ? `<h3 style="margin-top:12px">Who were you with?</h3><div class="chips">${WITH.map(([k, n]) => `<button class="chip" data-pw="${k}" aria-pressed="${w === k}">${n}</button>`).join("")}</div>` : ""}
-    <div class="li"><span class="grow">From</span>${stepper("x", "from", from, "start", "").replace(/data-act="x" data-arg="from\|([-+])"/g, 'data-pt="from|$1"').replace(/<b class="val">[^<]*<\/b>/, `<b class="val">${hm(from)}</b>`)}</div>
-    <div class="li"><span class="grow">Until</span>${stepper("x", "to", to, "end", "").replace(/data-act="x" data-arg="to\|([-+])"/g, 'data-pt="to|$1"').replace(/<b class="val">[^<]*<\/b>/, `<b class="val">${to >= 24 ? "12 am" : hm(to)}</b>`)}</div>
-    <div class="card tiny">Counts for <b>${esc(cname(c.k))} ${hh(to - from)}</b>${c.sh ? `, also <b>${esc(cname(c.sh))}</b> (shared)` : ""}${(to < b.e || from > b.s) ? `<br><span class="muted">The rest stays ${esc(cname(b.k))}.</span>` : ""}</div>
-    <div class="btns"><button class="btn primary block" data-psave>${mode === "swipe" ? "Save, next block" : "Save block"}</button></div>`; };
-  const el = sheet(mode === "swipe" ? "What was it?" : span(b.s, b.e), body());
+    <div class="dates"><label><span class="tiny muted">From</span><input type="time" id="pk-from" step="1800" value="${t2v(from)}"></label><label><span class="tiny muted">Until</span><input type="time" id="pk-to" step="1800" value="${t2v(to)}"></label></div>
+    <p class="tiny muted" style="margin:4px 0 0">${bad ? `<b class="warnc">Until is before From.</b> ` : ""}This day runs from 12 am (last night) to 12 am tonight. After midnight tonight goes in tomorrow's recap.</p>
+    <div class="card tiny">Counts for <b>${esc(cname(c.k))} ${bad ? "" : hh(to - from)}</b>${c.sh ? `, also <b>${esc(cname(c.sh))}</b> (shared)` : ""}${!add && (to < b.e || from > b.s) ? `<br><span class="muted">The rest stays ${esc(cname(b.k))}.</span>` : ""}</div>
+    <button class="toggle" data-pusual aria-pressed="${usual}"><span class="grow"><b>Usually like this</b><br><span class="tiny muted">Also change your usual ${kind}, so Era fills it this way from now on</span></span><i class="tg"></i></button>
+    <div class="btns"><button class="btn primary block" data-psave>${mode === "swipe" ? "Save, next block" : add ? "Add it" : "Save block"}</button></div>`; };
+  const el = sheet(mode === "swipe" ? "What was it?" : add ? "Add something" : span(b.s, b.e), body());
   const re = () => { const open = el.querySelector("details") && el.querySelector("details").open; el.querySelector(".body").innerHTML = body(); if (open) el.querySelector("details").open = true; };
+  el.addEventListener("change", e => { if (e.target.id === "pk-from") { const v = v2t(e.target.value); if (v != null) from = v; re(); } if (e.target.id === "pk-to") { const v = v2t(e.target.value, true); if (v != null) to = v; re(); } });
   el.addEventListener("click", e => { const t = e.target.closest("button"); if (!t || !el.contains(t)) return;
     if (t.dataset.pa) { a = t.dataset.pa; kk = null; re(); }
     else if (t.dataset.pk) { kk = t.dataset.pk; re(); }
     else if (t.dataset.pw !== undefined) { w = t.dataset.pw; re(); }
-    else if (t.dataset.pt) { const [f, dir] = t.dataset.pt.split("|"), dv = dir === "+" ? 0.5 : -0.5; if (f === "from") from = Math.max(0, Math.min(to - 0.5, from + dv)); else to = Math.min(24, Math.max(from + 0.5, to + dv)); re(); }
+    else if (t.hasAttribute("data-pusual")) { usual = !usual; re(); }
     else if (t.hasAttribute("data-psave")) {
+      if (!(to > from)) { toast("Until is before From. After midnight goes in tomorrow's recap."); return; }
+      if (add && !a && !kk) { toast("Pick what it was"); return; }
       const c = countFor(catNow(), w);
       draft.blocks = setRange(draft.blocks, from, to, { k: c.k, a: kk ? undefined : a, w: w || undefined, sh: c.sh || undefined, src: "edited" });
       draft.dirty = true; if (mode === "swipe") draft.pos = to;
-      el.remove(); toast("Saved " + span(from, to) + " as " + cname(c.k)); afterSwipeStep();
+      if (usual) { const wk = isWorkday(d) ? "wd" : "we", patch = kk ? { k: kk } : { a };
+        S.week[wk] = setRange(S.week[wk], from, to, patch).map(x => { const y = { s: x.s, e: x.e }; if (x.a) y.a = x.a; if (x.k && !x.a) y.k = x.k; return y; }); S.week.preset = "custom"; save(); }
+      el.remove(); toast((add ? "Added " : "Saved ") + span(from, to) + " as " + cname(c.k) + (usual ? ", and your usual " + kind : "")); afterSwipeStep();
     }
   });
 }
@@ -325,6 +337,7 @@ const ACT = {
   "save-draft": () => { commitDraft(); setNav([NAV[0]]); },
   "reset-day": () => { draft.blocks = autoFill(draft.d); draft.dirty = true; rerender(); },
   pick: i => pickSheet(+i, "dial"),
+  "pick-add": () => pickSheet(null, "add"),
   edge: a => { const [i, dir] = a.split("|"); const b = draft.blocks[+i]; draft.blocks = moveEdge(draft.blocks, +i, b.e + (dir === "+" ? 0.5 : -0.5)); draft.dirty = true; rerender(); },
   energy: k => { draft.energy = k; draft.dirty = true; rerender(); },
   mismatch: i => mismatchSheet(+i),
