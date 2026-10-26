@@ -11,7 +11,7 @@ let NAV = [];
 let prevOpen = S.lastOpen;
 const SETUP = new Set(["intro", "s_areas", "s_less", "s_push", "s_map", "s_paint", "s_st", "s_shape"]);
 const TABS = ["today", "week", "choose", "era", "me"];
-const FULL = new Set(["ch_size", "ch_score", "ch_sort", "ch_commit", "ch_dec1", "ch_dec2", "ch_dec3", "ch_dec4", "ch_decreview", "ch_review", "ch_own", "fill", "swipe", "dial", "lock1", "lock2", "lock3", "decide1", "decide2", "receipt", "vibe", "nextweek", "catchup"]);
+const FULL = new Set(["ch_log", "ch_size", "ch_score", "ch_sort", "ch_commit", "ch_dec1", "ch_dec2", "ch_dec3", "ch_dec4", "ch_decreview", "ch_review", "ch_own", "fill", "swipe", "dial", "lock1", "lock2", "lock3", "decide1", "decide2", "receipt", "vibe", "nextweek", "catchup"]);
 const FLOWS = [
   { pages: ["fill", "swipe", "dial"], dirty: () => draft && draft.dirty, title: "Save this day?", body: () => "You changed " + (draft ? fmtD(draft.d) : "this day") + ".", save: () => commitDraft(), drop: () => { draft = null; } },
   { pages: ["beads"], dirty: () => beadDraft && beadDraft.length, title: "Save this change?", body: () => beadDraft.map(m => cname(m.from) + " → " + cname(m.to)).join(", ") + ".", save: () => saveBeads(), drop: () => { beadDraft = null; beadSel = null; beadNote = ""; } },
@@ -30,6 +30,7 @@ function render(keepScroll) {
   document.body.classList.toggle("flow", FULL.has(c.p));
   if (S.onboarded) { const q = curQ(); $("#brand").innerHTML = APPNAME + (eraName(q) ? `<small>${esc(eraName(q))}</small>` : ""); }
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-current", b.dataset.tab === NAV[0].p ? "page" : "false"));
+  const tm = $("#tab-main"); if (tm && tm.textContent !== L("main")) tm.textContent = L("main");
   if (AFTER[c.p]) AFTER[c.p](c);
   if (keepScroll) window.scrollTo(0, y);
 }
@@ -318,7 +319,7 @@ function questAct(id, st) {
   else { x.status = st; x.doneAt = today(); if (st === "done") toast(x.moved ? "Done, a bit late. Late still counts." : "Done"); }
   save(); nativeSync(); rerender();
 }
-/* After a trip: how's your energy? Linked Choose things keep the answer next to your guess. */
+/* After a trip: how's your energy? A linked main quest keeps the answer next to your guess. */
 function tripEnergy(id, e) {
   const x = S.quests.find(y => y.id === id); if (!x) return;
   x.back = { e, at: today() }; if (x.status === "open") { x.status = "done"; x.doneAt = qSpan(x)[1]; }
@@ -524,9 +525,9 @@ function scheduleNative() {
   const once = [];
   const q = curQ(); once.push({ id: "era-" + q, at: qEnd(q) + " 19:00", title: "‘" + (eraName(q) || "This era") + "’ ends today", text: "Look back at it and name the next one" });
   S.goals.filter(g => !g.closed).forEach(g => once.push({ id: "goal-" + g.id, at: addD(g.end, 1) + " 09:00", title: L("lockin") + " done: " + g.title, text: "You said it was worth it because…" }));
-  if (S.choose && S.choose.setup) {
+  if (S.choose && S.choose.things && S.choose.things.length) {
     const t = today(), first = (t.slice(8) === "01" ? t : ymd(new Date(+t.slice(0, 4), +t.slice(5, 7), 1)));
-    if (S.choose.things.some(x => x.status === "now")) once.push({ id: "choose-" + first.slice(0, 7), at: first + " 10:00", title: "Choose: monthly check, 5 min", text: "How did last month go for your things?" });
+    if (S.choose.things.some(x => x.status === "now")) once.push({ id: "choose-" + first.slice(0, 7), at: first + " 10:00", title: L("main") + ": monthly check, 5 min", text: "How did last month go for this era's goals?" });
     S.choose.decisions.filter(dc => dc.chosen && dc.review && !dc.outcome).forEach(dc => once.push({ id: "dec-" + dc.id, at: dc.review + " 10:00", title: "Decision check: " + (dc.q || "your decision"), text: "Still the right call?" }));
   }
   const t0 = today(), away = awayDays(t0);

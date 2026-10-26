@@ -82,6 +82,7 @@ const LABELS = {
   week: ["Vibe check", "The weekly retro"],
   era: ["retro", "The era retro (shown as ‘my fitness era’ retro)"],
   quests: ["Side quests", "Trips, courses, people to see"],
+  main: ["Main quests", "The big goals (the Main quests tab)"],
   shift: ["Change my week", "Moving hours between areas"],
   lockin: ["Lock in", "Making room for a big goal"],
   less: ["Less of", "Things you want less of"],
