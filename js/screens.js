@@ -48,7 +48,7 @@ const shareToggle = () => `<button class="toggle" data-act="sharewith" aria-pres
 P.s_map = () => `<div class="onb">${stepTxt(4)}<h1>Where does each thing count?</h1><p class="muted">Every hour goes to More of, ${esc(L("less"))} or Neutral. Tap any you see differently.</p>
   <div class="card list">${mapRows()}</div>${shareToggle()}
   <div class="btns">${btn("Back", "back")}${btn("Looks right", "next", "s_paint", "primary grow")}</div></div>`;
-const BRUSHES = () => ["sleep", "work", "commute", "chores", "scroll", "family", "friends", "gym", "study", "rest", "tv", "trip", "other"].map(a => ({ a, k: catOf(a) })).concat(Object.keys(S.custom).filter(k => S.custom[k].kind === "area").map(k => ({ k })));
+const BRUSHES = () => ownActs().concat(["sleep", "work", "commute", "chores", "scroll", "family", "friends", "gym", "study", "rest", "tv", "trip", "other"]).map(a => ({ a, k: catOf(a) })).concat(Object.keys(S.custom).filter(k => S.custom[k].kind === "area").map(k => ({ k })));
 let brush = "gym";
 function paintBody() {
   return `<div class="chips">${Object.keys(PRESETS).map(k => chip(PRESETS[k].n, "preset", k, S.week.preset === k)).join("")}</div>
@@ -172,7 +172,7 @@ P.swipe = a => {
 P.dial = a => {
   const d = a.d || today(); ensureDraft(d, false); const bl = draft.blocks;
   const mism = logged(d) || draft.dirty ? bl.map((b, i) => ({ i, m: isArea(b.k) && !b.okphone ? stInBlock(d, b) : null })).filter(x => x.m && x.m.min >= 15) : [];
-  return `${head(fmtD(d), d === today() ? "Today" : "Back")}<p class="tiny muted">Drag a handle to move where one block ends and the next begins. Tap a part of the dial to change it.</p>
+  return `${head(fmtD(d), d === today() ? "Today" : "Back")}<p class="tiny muted">Drag a handle to move where one block ends and the next begins (15-minute steps). Tap a part of the dial to change it.</p>
   <div class="card dialcard"><div class="dialwrap" id="dialwrap">${dialSVG(bl, 300, { edit: true, center: hh(dayFree(bl)), sub: "free", id: "dialsvg" })}</div><p class="tiny muted center" id="dialtot">24 h · ${hh(dayFree(bl))} free</p></div>
   ${mism.map(x => `<div class="card mism"><b>${span(bl[x.i].s, bl[x.i].e)} · ${esc(cname(bl[x.i].k))}</b><p class="tiny" style="margin:4px 0">Your phone shows <b>${hmin(x.m.min)} of ${esc(cname(x.m.k).toLowerCase())}</b> in this block.</p>${btn("Check it", "mismatch", x.i, "sm")}</div>`).join("")}
   <div class="card list" id="blist">${blockList(bl)}</div>
@@ -182,7 +182,7 @@ P.dial = a => {
   <div class="btns sticky">${btn("Reset to usual", "reset-day")}${btn("Save day", "save-draft", null, "primary grow")}</div>`;
 };
 function blockList(bl) {
-  return bl.map((b, i) => `<div class="li blk"><i class="vbar" style="background:${ccol(b.k)}"></i><button class="grow blkbtn" data-act="pick" data-arg="${i}"><b>${esc(blockLabel(b))}</b>${b.sh ? ` <span class="tag blue">+ ${esc(cname(b.sh))} shared</span>` : ""}${b.wo ? ` <span class="tag">${{ yes: "worth it", meh: "meh", no: "not worth it" }[b.wo]}</span>` : ""}<br><span class="tiny muted">${lastNight(b)}${span(b.s, b.e)} · ${hh(b.e - b.s)}</span></button>${i < bl.length - 1 ? `<span class="stp"><button class="step" data-act="edge" data-arg="${i}|-" aria-label="End ${esc(blockLabel(b))} earlier">−</button><button class="step" data-act="edge" data-arg="${i}|+" aria-label="End ${esc(blockLabel(b))} later">+</button></span>` : ""}</div>`).join("");
+  return bl.map((b, i) => `<div class="li blk"><i class="vbar" style="background:${ccol(b.k)}"></i><button class="grow blkbtn" data-act="pick" data-arg="${i}"><b>${esc(blockLabel(b))}</b>${b.sh ? ` <span class="tag blue">+ ${esc(cname(b.sh))} shared</span>` : ""}${b.wo ? ` <span class="tag">${{ yes: "worth it", meh: "meh", no: "not worth it" }[b.wo]}</span>` : ""}<br><span class="tiny muted">${lastNight(b)}${span(b.s, b.e)} · ${dur(b.e - b.s)}</span></button>${i < bl.length - 1 ? `<span class="stp"><button class="step" data-act="edge" data-arg="${i}|-" aria-label="End ${esc(blockLabel(b))} 15 minutes earlier">−</button><button class="step" data-act="edge" data-arg="${i}|+" aria-label="End ${esc(blockLabel(b))} 15 minutes later">+</button></span>` : ""}</div>`).join("");
 }
 
 /* Catch up */
@@ -211,6 +211,8 @@ P.week = () => {
   else h += `<div class="card">${shapeSVG(S.areas, [{ v: plan, kind: "plan" }].concat(Object.keys(sh).length ? [{ v: act, extra: sh, kind: "shared" }] : []).concat([{ v: act, kind: fade ? "dull" : "actual" }]), 300, { label: "This week against the plan" })}${legend("Plan", fade ? "This week (faded: over an aim)" : "This week", Object.keys(sh).length ? "Shared" : "")}<p class="tiny muted center">${elapsed} of ${7 - away} days · ${nLogged} logged${away ? " · " + away + " on a trip, not counted" : ""} · unlogged days count as usual</p></div>`;
   if (elapsed) h += `<div class="card">${S.areas.map(k => { const a = act[k] || 0, p = plan[k] || 0; return `<div class="cmp"><span>${sw(ccol(k))}${esc(cname(k))}</span><div class="bar"><i style="width:${Math.min(100, p ? a / p * 100 : a ? 100 : 0)}%;background:${ccol(k)}"></i></div><span class="t">${h1(a)} of ${h1(p)}${sh[k] ? `<br><span class="tiny muted">+${h1(sh[k])} shared</span>` : ""}</span></div>`; }).join("")}</div>`;
   h += lessCard(mon);
+  if (ownActs().length && elapsed) { const rows = ownActs().map(id => { let hrs = 0, days = 0, n = 0; eachDay(mon, last, d => { if (awayOn(d) || (d === t && !logged(d))) return; n++; let x = 0; dayBlocks(d).forEach(b => { if (b.a === id) x += b.e - b.s; }); hrs += x; if (x > 0) days++; }); return `<div class="li"><span class="grow">${esc(S.acts[id].n)}<br><span class="tiny muted">${days} of ${n} day${n === 1 ? "" : "s"}</span></span><b>${dur(hrs)}</b></div>`; });
+    h += `<div class="card list"><h3>Your activities</h3>${rows.join("")}</div>`; }
   const usualWork = (() => { let o = 0; eachDay(mon, last, d => { if (!awayOn(d)) o += hoursOf(tmplBlocks(d)).work || 0; }); return o; })();
   const work = (act.work || 0) + (act.overtime || 0), ot = Math.max(0, work - usualWork), sleepAvg = (act.sleep || 0) / (elapsed || 1);
   if (elapsed) h += `<p class="tiny frameline">Work ${hh(work)}${ot > 0.01 ? `, <b class="amber">${hh(ot)} overtime</b>` : ""} · sleep ${h1(sleepAvg)} h a night${sleepAvg < 7 - 0.01 ? `, <b class="amber">below 7–8</b>` : sleepAvg > 9.5 ? `, <b class="amber">above 7–9</b>` : ""}</p>`;
@@ -433,7 +435,9 @@ P.m_areas = () => {
 P.m_map = () => {
   const v = NATIVE() && S.st.on ? stDay(today()) : null;
   const apps = v ? (v.apps || []).slice().sort((a, b) => b.min - a.min).slice(0, 12) : [];
-  return `${head("Where things count", "Back")}<div class="card list">${mapRows()}</div>${shareToggle()}
+  const own = ownActs();
+  return `${head("Where things count", "Back")}<h2>Your activities</h2>${own.length ? `<div class="card list">${own.map(id => `<button class="rowlink" data-act="act-edit" data-arg="${id}"><span class="grow">${esc(S.acts[id].n)}</span><b>${kindOf(catOf(id)) === "less" ? esc(L("less")) + ": " : ""}${esc(catOf(id) === "other" ? "Neutral" : cname(catOf(id)))}</b><span class="chev">›</span></button>`).join("")}</div>` : `<p class="tiny muted">Add things you do that aren't on the list, like singing or cooking.</p>`}${btn("+ Add an activity", "act-add", null, "block")}
+  <h2>Everyday things</h2><div class="card list">${mapRows()}</div>${shareToggle()}
   ${apps.length ? `<h2>Apps</h2><p class="tiny muted">Same rule as everything else: your call.</p><div class="card list">${apps.map(a => { const k = appCat(a.pkg, a.hint); return `<button class="rowlink" data-act="appmap" data-arg="${esc(a.pkg)}"><span class="grow">${esc(a.label || a.pkg)}<br><span class="tiny muted">${hmin(a.min)} today</span></span><b style="color:${k && isLess(k) ? "var(--warn)" : "var(--ink)"}">${k ? (isLess(k) ? esc(L("less")) + ": " : "") + esc(cname(k)) : "Neutral"}</b><span class="chev">›</span></button>`; }).join("")}</div>` : ""}`;
 };
 P.m_push = () => `${head("Push level", "Me")}<p class="muted">When you go over an aim, the app gets…</p>${pushOpts()}<p class="tiny muted">It never blocks you, and nothing red shows outside the app.</p>`;

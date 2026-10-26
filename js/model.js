@@ -122,9 +122,14 @@ const span = (s, e) => { const sa = Math.floor(s) % 24 < 12, ea = Math.floor(e -
 
 /* ---------- Numbers ---------- */
 const r2 = x => Math.round(x * 2) / 2;
+const r4 = x => Math.round(x * 4) / 4;                  // 15 minutes
+const rmin = x => Math.round(x * 60) / 60;              // a minute
+/* One 15-minute step from h, landing on the quarter hour (12:10 + one step is 12:15). */
+const qStep = (h, dir) => dir > 0 ? Math.floor(h * 4 + 1e-6) / 4 + 0.25 : Math.ceil(h * 4 - 1e-6) / 4 - 0.25;
 const h1 = x => { const r = Math.round(x * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
 const hh = x => h1(x) + " h";
 const hmin = m => m >= 60 ? Math.floor(m / 60) + " h" + (Math.round(m % 60) ? " " + Math.round(m % 60) + " m" : "") : Math.round(m) + " m";
+const dur = h => hmin(Math.round(h * 60));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ---------- State ---------- */
@@ -138,7 +143,7 @@ function fresh() {
     protect: ["sleep", "health"],
     st: { on: false, aim: 2, map: {} },
     remind: { on: true, daily: "21:30", weekly: "19:00", weeklyDow: 0 },
-    labels: {}, seen: {}, lastOpen: null, skipBefore: null, choose: null
+    labels: {}, seen: {}, lastOpen: null, skipBefore: null, choose: null, acts: {}
   };
 }
 let S; // loaded at the end of this file, once everything it needs is defined
@@ -171,6 +176,16 @@ function catOf(a) {
   return A.to.find(inUse) || "other";
 }
 const actName = a => (ACTS[a] && ACTS[a].n) || "";
+/* Your own activities, like singing: S.acts = {id: {n, to, hidden}}. They join the built-in ones, first
+   in the picker. A removed one stays hidden, so days that used it keep their label. */
+function addActs() {
+  Object.keys(ACTS).forEach(a => { if (ACTS[a].own) delete ACTS[a]; });
+  for (let i = PICK_ACTS.length - 1; i >= 0; i--) if (!ACTS[PICK_ACTS[i]]) PICK_ACTS.splice(i, 1);
+  const own = S.acts || {};
+  Object.keys(own).forEach(id => { ACTS[id] = { n: own[id].n, to: [own[id].to, "other"], own: 1 }; });
+  Object.keys(own).filter(id => !own[id].hidden).reverse().forEach(id => PICK_ACTS.unshift(id));
+}
+const ownActs = () => Object.keys(S.acts || {}).filter(id => !S.acts[id].hidden);
 
 /* ---------- Blocks ---------- */
 const sameB = (a, b) => a.k === b.k && (a.a || "") === (b.a || "") && (a.w || "") === (b.w || "") && (a.sh || "") === (b.sh || "") && (a.wo || "") === (b.wo || "") && (a.src || "") === (b.src || "") && (a.check || 0) === (b.check || 0) && (a.goal || "") === (b.goal || "") && (a.thing || "") === (b.thing || "");
@@ -200,7 +215,7 @@ function setRange(list, s, e, patch) {
 }
 function moveEdge(list, i, t) {
   const a = list[i], b = list[i + 1]; if (!a || !b) return list;
-  t = Math.max(a.s, Math.min(b.e, r2(t)));
+  t = Math.max(a.s, Math.min(b.e, rmin(t)));
   const c = list.map(x => ({ ...x })); c[i].e = t; c[i + 1].s = t;
   return norm(c);
 }
@@ -437,3 +452,4 @@ function restoreVersion(id) {
 }
 
 S = loadState();
+addActs();
