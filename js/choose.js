@@ -1,7 +1,8 @@
 "use strict";
-/* Era · Choose: ten things you want, limited time, money and energy. Budgets, lenses (standard
-   frameworks and your own), five views, what fits this era, commit to Era, decisions, monthly check.
-   Loaded before app.js; its actions are merged into ACT / IN / AFTER there. */
+/* Era · Main quests: the big goals. Log each with why it matters and a rough size, rate it through
+   lenses (standard frameworks and your own), see them in five views. Then, as the next step, pick
+   what this era is for: budgets (or skip them), size in detail, what fits, commit to Era.
+   Also decisions and a monthly check. Loaded before app.js; its actions are merged into ACT / IN / AFTER. */
 
 /* ---------- Constants ---------- */
 const STD_LENSES = [
@@ -15,12 +16,14 @@ const ENERGY_LEVELS = [[2, "Low"], [4, "Medium"], [6, "High"]];
 const WINDOWS = [["any", "Any time", 1], ["year", "This year", 3], ["now", "Now or never", 5]];
 const UNDOS = [["easy", "Easy to undo", 5], ["medium", "Some cost", 3], ["hard", "Hard to undo", 1]];
 const TYPES = [["habit", "Habit"], ["project", "Project"], ["oneoff", "One-off"]];
-const STATUSES = [["now", "Now"], ["next", "Next"], ["later", "Later"], ["letgo", "Let go"], ["idea", "Not sorted"]];
+const STATUSES = [["now", "This era"], ["next", "Next"], ["later", "Later"], ["letgo", "Let go"], ["idea", "Not decided"]];
+const SIZES = [["s", "Small", "A weekend or a few hours"], ["m", "Medium", "A few months of steady effort"], ["l", "Huge", "Years, or a big chunk of money"]];
+const SIZE_COST = { s: 0.3, m: 1, l: 2.5 };
 const CURS = ["₹", "$", "€", "£"];
 const ACT_FOR = { family: "family", friends: "friends", health: "gym", learn: "study", trips: "trip", selfcare: "rest", partner: "partner", career: "study", create: "hobby", faith: "pray", giving: "help" };
 
 /* ---------- State ---------- */
-function chFresh() { return { setup: false, time: 8, month: 20000, pot: 100000, cur: "₹", energy: 4, lenses: STD_LENSES.map(l => ({ id: l.id, on: true, w: l.w })), own: [], things: [], decisions: [], reviews: {} }; }
+function chFresh() { return { setup: false, budgets: null, time: 8, month: 20000, pot: 100000, cur: "₹", energy: 4, lenses: STD_LENSES.map(l => ({ id: l.id, on: true, w: l.w })), own: [], things: [], decisions: [], reviews: {} }; }
 const CH = () => S.choose || (S.choose = chFresh());
 const thing = id => CH().things.find(x => x.id === id);
 const decision = id => CH().decisions.find(x => x.id === id);
@@ -34,7 +37,9 @@ const GUESS = [
 ];
 function guessArea(t) { for (const [re, k] of GUESS) if (re.test(t)) { if (isArea(k)) return k; if (k === "career" && isArea("learn")) return "learn"; if (k === "partner" && isArea("family")) return "family"; if (k === "create" && isArea("learn")) return "learn"; } return S.areas.includes("learn") ? "learn" : S.areas[0]; }
 function guessType(t) { if (/\b(buy|purchase|get a|new (car|phone|laptop|bike))\b|trip|travel|holiday|vacation|trek|tour|wedding|concert/i.test(t)) return "oneoff"; if (/exam|prep|degree|course|certif|project|build|launch|renovat|move house|marathon/i.test(t)) return "project"; return "habit"; }
-function newThing(t) { const ty = guessType(t); return { id: uid(), t, area: guessArea(t), type: ty, h: 2, total: 40, by: addD(today(), 90), days: /trip|travel|holiday|vacation|trek|tour/i.test(t) ? 3 : 1, m1: 0, mm: 0, e: 0, sc: { areas: {}, regret: 3, hell: 3, window: "any", undo: ty === "oneoff" && /buy|purchase/i.test(t) ? "medium" : "easy" }, status: "idea", sized: false, scored: false, links: {}, spent: [], at: today() }; }
+function newThing(t) { const ty = guessType(t); return { id: uid(), t, area: guessArea(t), type: ty, h: 2, total: 40, by: addD(today(), 90), days: /trip|travel|holiday|vacation|trek|tour/i.test(t) ? 3 : 1, m1: 0, mm: 0, e: 0, sc: { areas: {}, regret: 3, hell: 3, window: "any", undo: ty === "oneoff" && /buy|purchase/i.test(t) ? "medium" : "easy" }, status: "idea", sized: false, scored: false, links: {}, spent: [], at: today(), why: "", size: null }; }
+/* Budgets are asked when you first pick goals for this era, and can be skipped. */
+const budgetsOn = () => !!CH().setup;
 
 /* ---------- Money ---------- */
 const money = n => { const c = CH().cur; return (n < 0 ? "−" : "") + c + Math.round(Math.abs(n)).toLocaleString(c === "₹" ? "en-IN" : "en-US"); };
@@ -58,18 +63,18 @@ function score(x) { const ls = activeLenses(); const W = ls.reduce((a, l) => a +
 /* ---------- Costs ---------- */
 const weeksTo = by => Math.max(1, Math.ceil(diffD(today(), by) / 7));
 function weekly(x) { return x.type === "habit" ? x.h : x.type === "project" ? r2(x.total / weeksTo(x.by)) : 0; }
-function costIx(x) { const C = CH(); return weekly(x) / Math.max(1, C.time) + Math.max(0, x.mm) / Math.max(1, C.month) + x.m1 / Math.max(1, C.pot) + Math.max(0, -x.e) / Math.max(1, C.energy) + (x.type === "oneoff" ? x.days * 0.1 : 0); }
+function costIx(x) { const C = CH(); if (!x.sized) return SIZE_COST[x.size || "m"]; return weekly(x) / Math.max(1, C.time) + Math.max(0, x.mm) / Math.max(1, C.month) + x.m1 / Math.max(1, C.pot) + Math.max(0, -x.e) / Math.max(1, C.energy) + (x.type === "oneoff" ? x.days * 0.1 : 0); }
 function totals(list) {
   const o = { time: 0, month: 0, pot: 0, drain: 0, back: 0, days: 0 };
   list.forEach(x => { o.time += weekly(x); o.month += x.mm; o.pot += x.m1; o.drain += Math.max(0, -x.e); o.back += Math.max(0, x.e); if (x.type === "oneoff") o.days += x.days; });
   return o;
 }
 function over(t) { const C = CH(); return { time: Math.max(0, t.time - C.time), month: Math.max(0, t.month - C.month), pot: Math.max(0, t.pot - C.pot), energy: Math.max(0, t.drain - C.energy - t.back) }; }
-const fits = t => { const o = over(t); return !o.time && !o.month && !o.pot && !o.energy; };
+const fits = t => { if (!budgetsOn()) return true; const o = over(t); return !o.time && !o.month && !o.pot && !o.energy; };
 const sorted = list => list.slice().sort((a, b) => score(b) - score(a) || costIx(a) - costIx(b));
 /* Greedy: best value for its cost first, while all four budgets still fit. */
 function suggestSet() {
-  const pool = CH().things.filter(x => x.status !== "letgo").slice().sort((a, b) => score(b) / (0.15 + costIx(b)) - score(a) / (0.15 + costIx(a)));
+  const pool = CH().things.filter(x => x.status !== "letgo" && x.sized).slice().sort((a, b) => score(b) / (0.15 + costIx(b)) - score(a) / (0.15 + costIx(a)));
   const pick = []; pool.forEach(x => { if (fits(totals(pick.concat([x])))) pick.push(x); });
   return pick.map(x => x.id);
 }
@@ -171,12 +176,13 @@ const strengths = (dc, o) => { const rows = decRows(dc); return rows.filter(r =>
 /* ---------- Monthly check ---------- */
 const ymOf = d => d.slice(0, 7);
 const monthName = ym => MON[+ym.slice(5, 7) - 1];
-function checkDue() { const ym = ymOf(today()), prev = ymOf(addD(today().slice(0, 8) + "01", -1)); const C = CH(); return C.setup && C.things.some(x => x.status === "now") && !C.reviews[prev] && (!C.since || C.since <= prev + "-28") ? prev : null; }
+function checkDue() { const ym = ymOf(today()), prev = ymOf(addD(today().slice(0, 8) + "01", -1)); const C = CH(); return C.things.some(x => x.status === "now") && !C.reviews[prev] && (!C.since || C.since <= prev + "-28") ? prev : null; }
 
 /* ======================= Screens ======================= */
 const dots5 = (act, arg, v) => `<span class="dots5" role="group">${[1, 2, 3, 4, 5].map(i => `<button class="dotb${i <= v ? " on" : ""}" data-act="${act}" data-arg="${esc(arg)}|${i}" aria-label="${i} of 5" aria-pressed="${i === v}"></button>`).join("")}</span>`;
 const edots = (act, arg, v) => `<div class="edots" role="group" aria-label="Energy">${[-2, -1, 0, 1, 2].map(e => `<button class="edot e${e + 2}${v === e ? " on" : ""}" data-act="${act}" data-arg="${esc(arg)}|${e}" aria-pressed="${v === e}" aria-label="${["Drains a lot", "Drains a bit", "Neutral", "Recharges a bit", "Recharges a lot"][e + 2]}">${e > 0 ? "+" + e : e < 0 ? "−" + -e : "0"}</button>`).join("")}</div><div class="elabels"><span class="warnc">drains a lot</span><span class="muted">neutral</span><span class="goodc">recharges</span></div>`;
 function costChips(x) {
+  if (!x.sized) return `<span class="ccs"><span class="cc">${(SIZES.find(z => z[0] === (x.size || "m")) || SIZES[1])[1]}</span></span>`;
   const w = weekly(x), c = [];
   if (x.type === "oneoff") c.push(`<span class="cc">⏱ ${x.days} day${x.days === 1 ? "" : "s"}</span>`); else if (w) c.push(`<span class="cc">⏱ ${w < 0 ? "saves " + h1(-w) : h1(w)} h/wk</span>`);
   if (x.m1) c.push(`<span class="cc">${kmoney(x.m1)}</span>`);
@@ -191,40 +197,41 @@ function budgetsCard(list, compact) {
 }
 const chHead = (title, backTxt, sub) => `${head(title, backTxt)}${sub ? `<p class="tiny muted">${sub}</p>` : ""}`;
 
-/* ---- First time: budgets and lenses ---- */
+/* ---- Home ---- */
+const tagOf = x => x.status === "now" ? `<span class="tag good">this era</span>` : x.status === "next" ? `<span class="tag blue">next</span>` : x.status === "later" ? `<span class="tag">later</span>` : "";
+function decisionsHTML() { const C = CH(); return C.decisions.length ? `<h3>Decisions</h3><div class="card list">${C.decisions.slice().reverse().map(dc => { const ch = dc.opts.find(o => o.id === dc.chosen); return `<button class="li" data-act="go" data-arg="${dc.chosen ? "ch_dec4" : "ch_dec1"}" data-id="${dc.id}"><span class="grow"><b>${esc(dc.q || "Untitled decision")}</b><br><span class="tiny muted">${ch ? "Chose " + esc(ch.n) + (dc.review ? " · review " + fmtS(dc.review) : "") : "not decided yet"}${dc.outcome ? " · " + { yes: "still right", part: "partly", no: "deciding again" }[dc.outcome] : ""}</span></span><span class="chev">›</span></button>`; }).join("")}</div>` : ""; }
 P.choose = () => {
   const C = CH(); fitSel = null; sortDraft = null;
-  if (!C.setup) return `<h1>Ten things. One week.</h1><p class="muted">You want to do more than fits. Choose weighs each thing's cost in <b>time</b>, <b>money</b> and <b>energy</b>, looks at it through lenses you pick, and shows what fits this era. The rest waits its turn, on purpose.</p>
-    <div class="card trio"><div><b class="bignum">⏱</b><b>Time</b><span class="tiny muted">from Era</span></div><div><b class="bignum">${C.cur}</b><b>Money</b><span class="tiny muted">a monthly budget</span></div><div><b class="bignum">⚡</b><b>Energy</b><span class="tiny muted">drains or recharges</span></div></div>
-    <div class="btns">${btn("Set my budgets", "go", "ch_time", "primary block")}</div>`;
-  const now = C.things.filter(x => x.status === "now"), nx = C.things.filter(x => x.status === "next"), later = C.things.filter(x => x.status === "later"), ideas = C.things.filter(x => x.status === "idea");
+  const all = C.things.filter(x => x.status !== "letgo"), now = C.things.filter(x => x.status === "now"), gone = C.things.filter(x => x.status === "letgo"), later = C.things.filter(x => x.status === "later");
   const t = today(), mon = mondayOf(t);
-  let h = `<h1>Choose</h1><p class="muted">${esc(eraName(curQ()) || qLabel(curQ()))} · ${now.length} now${nx.length ? ", " + nx.length + " next" : ""}</p>`;
-  const due = checkDue(); if (due) h += `<button class="card rowcard tip" data-act="go" data-arg="ch_review"><span class="grow"><b>Monthly check, 5 minutes</b><br><span class="tiny muted">How did ${monthName(due)} go for your ${now.length} things?</span></span><span class="chev">›</span></button>`;
+  let h = `<h1>${esc(L("main"))}</h1>`;
+  if (!C.things.length) return h + `<p class="muted">The big goals, the ones your story is about. Log each with why it matters and how big it is, see them side by side through your lenses, then pick what this era is for. The rest waits its turn, on purpose.</p>
+    <div class="card trio"><div><b class="bignum">1</b><b>Log</b><span class="tiny muted">the goal, why, how big</span></div><div><b class="bignum">2</b><b>See</b><span class="tiny muted">rank, 2×2, urgent, balance, reality</span></div><div><b class="bignum">3</b><b>Pick</b><span class="tiny muted">what this era is for</span></div></div>
+    <div class="btns">${btn("+ Log a main quest", "ch-add", null, "primary block")}</div><div class="card list">${link("Lenses", "How goals are judged: " + activeLenses().length + " on" + (C.own.length ? " · " + C.own.length + " your own" : ""), "go", "ch_lenses")}</div>${decisionsHTML()}`;
+  h += `<p class="muted">${all.length} goal${all.length === 1 ? "" : "s"}${now.length ? " · " + now.length + " this era" : ""}</p>`;
+  const due = checkDue(); if (due) h += `<button class="card rowcard tip" data-act="go" data-arg="ch_review"><span class="grow"><b>Monthly check, 5 minutes</b><br><span class="tiny muted">How did ${monthName(due)} go for your ${now.length} goals this era?</span></span><span class="chev">›</span></button>`;
   C.decisions.filter(dc => dc.chosen && dc.review && dc.review <= t && !dc.outcome).forEach(dc => { h += `<button class="card rowcard tip" data-act="go" data-arg="ch_decreview" data-id="${dc.id}"><span class="grow"><b>${esc(dc.q)}: right call?</b><br><span class="tiny muted">You chose “${esc((dc.opts.find(o => o.id === dc.chosen) || {}).n || "")}” on ${fmtS(dc.at)}</span></span><span class="chev">›</span></button>`; });
   later.filter(x => x.review && x.review <= t).forEach(x => { h += `<button class="card rowcard" data-act="go" data-arg="ch_thing" data-id="${x.id}"><span class="grow"><b>Later: ${esc(x.t)}</b><br><span class="tiny muted">Review date. Bring it back, or keep it waiting?</span></span><span class="chev">›</span></button>`; });
-  h += budgetsCard(now, true);
-  h += now.length ? `<div class="card list">${now.map(x => { const w = weekly(x); let prog = "", pct = 0;
+  if (now.length) { h += `<h3>This era</h3>` + (budgetsOn() ? budgetsCard(now, true) : "");
+    h += `<div class="card list">${now.map(x => { const w = weekly(x); let prog = "", pct = 0;
       if (x.type === "project") { const g = x.links && x.links.goal && S.goals.find(y => y.id === x.links.goal); const done = g ? goalDone(g) : hoursFor(x, x.at, t); prog = h1(done) + " of " + x.total + " h"; pct = done / x.total * 100; }
       else if (x.type === "habit") { const done = hoursFor(x, mon, t); prog = h1(done) + " of " + h1(w) + " h this week"; pct = w ? done / w * 100 : 0; }
       else { prog = x.date ? (x.date < t ? "was " : "") + fmtS(x.date) : "a weekend"; pct = x.date && x.date < t ? 100 : 0; }
-      return `<div class="li"><button class="grow blkbtn" data-act="go" data-arg="ch_thing" data-id="${x.id}"><b>${esc(x.t)}</b><div class="bar slim"><i style="width:${Math.min(100, pct)}%;background:${ccol(x.area)}"></i></div><span class="tiny muted">${prog}</span></button>${x.type !== "oneoff" ? btn("+1 h", "ch-hour", x.id, "sm") : ""}</div>`; }).join("")}</div>` : `<div class="card tiny">Nothing chosen yet. ${C.things.length ? "Open What fits to choose." : "Add the things you want to do."}</div>`;
-  h += `<div class="btns">${btn("+ A thing", "ch-add", null, "grow")}${btn("Make a decision", "ch-dec-new", null, "grow")}</div>`;
-  h += `<div class="card list">${link("All " + C.things.length + " things", "Ranked, 2×2, urgent, balance, reality", "go", "ch_views")}${link("What fits this era", now.length ? "Change what's chosen" : "Pick what fits your budgets", "go", "ch_fit")}${link("Lenses", activeLenses().length + " on" + (C.own.length ? " · " + C.own.length + " your own" : ""), "go", "ch_lenses")}${link("Budgets", h1(C.time) + " h a week · " + kmoney(C.month) + " a month · " + kmoney(C.pot) + " saved · energy " + C.energy, "go", "ch_time")}</div>`;
-  if (nx.length) h += `<h3>Next</h3><div class="card list">${nx.map(x => thingRow(x)).join("")}</div>`;
-  if (ideas.length) h += `<h3>Not sorted yet</h3><div class="card list">${ideas.map(x => thingRow(x)).join("")}</div>`;
-  if (later.length) h += `<h3>Later</h3><div class="card list">${later.map(x => thingRow(x, x.review ? "review " + fmtS(x.review) : "")).join("")}</div>`;
-  if (C.decisions.length) h += `<h3>Decisions</h3><div class="card list">${C.decisions.slice().reverse().map(dc => { const ch = dc.opts.find(o => o.id === dc.chosen); return `<button class="li" data-act="go" data-arg="${dc.chosen ? "ch_dec4" : "ch_dec1"}" data-id="${dc.id}"><span class="grow"><b>${esc(dc.q || "Untitled decision")}</b><br><span class="tiny muted">${ch ? "Chose " + esc(ch.n) + (dc.review ? " · review " + fmtS(dc.review) : "") : "not decided yet"}${dc.outcome ? " · " + { yes: "still right", part: "partly", no: "deciding again" }[dc.outcome] : ""}</span></span><span class="chev">›</span></button>`; }).join("")}</div>`;
-  return h;
+      return `<div class="li"><button class="grow blkbtn" data-act="go" data-arg="ch_thing" data-id="${x.id}"><b>${esc(x.t)}</b><div class="bar slim"><i style="width:${Math.min(100, pct)}%;background:${ccol(x.area)}"></i></div><span class="tiny muted">${prog}</span></button>${x.type !== "oneoff" ? btn("+1 h", "ch-hour", x.id, "sm") : ""}</div>`; }).join("")}</div>`; }
+  h += `<div class="btns">${btn("+ Log a main quest", "ch-add", null, "primary block")}</div>`;
+  h += `<h3>All your ${esc(L("main").toLowerCase())}</h3>` + viewsHTML(all);
+  h += `<div class="card list">${link("What fits this era", now.length ? "Change what this era is for" : "Pick what this era is for", "ch-fit-open", null)}${link("Lenses", activeLenses().length + " on" + (C.own.length ? " · " + C.own.length + " your own" : ""), "go", "ch_lenses")}${link("Make a decision", "Weigh two or three options, like rent or buy", "ch-dec-new", null)}${link("Budgets", C.setup ? h1(C.time) + " h a week · " + kmoney(C.month) + " a month · " + kmoney(C.pot) + " saved · energy " + C.energy : C.budgets === "skipped" ? "Skipped · set them any time" : "Not set yet", "go", "ch_time")}</div>`;
+  if (gone.length) h += `<h3>Let go</h3><div class="card list faded">${gone.map(x => thingRow(x)).join("")}</div>`;
+  return h + decisionsHTML();
 };
-function thingRow(x, extra) { return `<button class="li" data-act="go" data-arg="ch_thing" data-id="${x.id}"><i class="vbar" style="background:${ccol(x.area)}"></i><span class="grow"><b>${esc(x.t)}</b><br>${costChips(x)}${extra ? ` <span class="tiny muted">${extra}</span>` : ""}</span><b class="score">${x.scored ? score(x) : "–"}</b></button>`; }
+function thingRow(x, extra) { return `<button class="li" data-act="go" data-arg="ch_thing" data-id="${x.id}"><i class="vbar" style="background:${ccol(x.area)}"></i><span class="grow"><b>${esc(x.t)}</b> ${tagOf(x)}<br>${costChips(x)}${extra ? ` <span class="tiny muted">${extra}</span>` : ""}</span><b class="score">${x.scored ? score(x) : "–"}</b></button>`; }
 P.ch_time = () => {
   const C = CH(), pw = planWeek(curQ(), today()), keys = S.areas.concat(S.less.map(i => i.k)).filter(k => (pw[k] || 0) > 0 && isFree(k));
   const max = Math.max(1, ...keys.map(k => pw[k] || 0)), mv = movable();
-  return `${chHead("Time you can give", C.setup ? "Choose" : "Back", "Budgets 1 of 3")}<p class="muted">From Era: <b class="ink">${Math.round(freeOf(pw))} free hours a week</b>. Most already have a home.</p>
+  return `${chHead("Time you can give", C.setup ? L("main") : "Back", "Budgets 1 of 3")}${C.setup ? "" : `<p class="tiny muted">Era checks the goals you pick for this era against these. You can skip them.</p>`}<p class="muted">From Era: <b class="ink">${Math.round(freeOf(pw))} free hours a week</b>. Most already have a home.</p>
   <div class="card">${keys.map(k => `<div class="cmp"><span>${sw(ccol(k))}${esc(cname(k))}</span><div class="bar"><i style="width:${(pw[k] || 0) / max * 100}%;background:${ccol(k)}"></i></div><span class="t">${hh(pw[k] || 0)}</span></div>`).join("")}<p class="tiny muted" style="margin:6px 0 0"><b class="goodc">${hh(mv)} can move</b> without touching your areas: ${esc(L("less").toLowerCase())} above its aim, and Other.</p></div>
   <div class="card"><div class="li"><span class="grow"><b>For new things</b></span>${stepper("ch-budget", "time", C.time, "hours a week")}</div><p class="tiny muted" style="margin:6px 0 0">${C.time > mv ? `${hh(C.time - mv)} more than can move freely, so some comes from areas you already have. Era says which when you commit.` : "All of it can come from what you want less of."}</p></div>
-  <div class="btns">${btn("Next: money", "go", "ch_money", "primary block")}</div>`;
+  <div class="btns">${btn("Next: money", "go", "ch_money", "primary block")}${C.setup ? "" : btn("Skip budgets for now", "ch-budget-skip", null, "block")}</div>`;
 };
 P.ch_money = () => {
   const C = CH();
@@ -240,13 +247,13 @@ P.ch_energy = () => {
   <div class="card"><div class="edots static">${[-2, -1, 0, 1, 2].map(e => `<span class="edot e${e + 2}">${e > 0 ? "+" + e : e < 0 ? "−" + -e : "0"}</span>`).join("")}</div><div class="elabels"><span class="warnc">drains a lot</span><span class="muted">neutral</span><span class="goodc">recharges</span></div></div>
   <p class="muted">How much draining stuff can you carry in a normal week?</p><div class="seg" role="group">${ENERGY_LEVELS.map(([v, n]) => `<button data-act="ch-energy" data-arg="${v}" aria-pressed="${C.energy === v}">${n} · ${v}</button>`).join("")}</div>
   <div class="card tiny lh">A thing that drains a lot costs 2 points a week. Things that recharge give points back, so a run can pay for a hard study block.</div>
-  <div class="btns">${btn(C.setup ? "Done" : "Next: your lenses", C.setup ? "home" : "go", C.setup ? null : "ch_lenses", "primary block")}</div>`;
+  <div class="btns">${C.setup ? btn("Done", "home", null, "primary block") : btn("Next: what fits this era", "ch-setup-done", null, "primary block")}</div>`;
 };
 P.ch_lenses = () => {
   const C = CH();
   return `${chHead("Your lenses", "Back", "How should Era judge them?")}<p class="muted">Standard frameworks, on by default. Weigh what matters more.</p>
   <div class="card list">${lensList().map(l => `<div class="li"><span class="grow"><b>${esc(l.n)}</b><br><span class="tiny muted">${esc(l.d || "")}</span></span>${l.on ? stepper("ch-lens-w", l.id, l.w, "weight", "").replace(/<b class="val">([^<]*)<\/b>/, `<b class="val">×$1</b>`) : ""}<button class="tgl" data-act="ch-lens-on" data-arg="${l.id}" aria-pressed="${l.on}" aria-label="${esc(l.n)} on or off"><i class="tg"></i></button>${l.own ? `<button class="icon-btn" data-act="go" data-arg="ch_own" data-id="${l.id}" aria-label="Edit ${esc(l.n)}">✎</button>` : ""}</div>`).join("")}</div>
-  <div class="btns">${btn("+ Your own lens", "go", "ch_own", "block")}${btn(C.setup ? "Done" : "Next: add your things", C.setup ? "back" : "ch-setup-done", null, "primary block")}</div>`;
+  <div class="btns">${btn("+ Your own lens", "go", "ch_own", "block")}${btn("Done", "back", null, "primary block")}</div>`;
 };
 let ownDraft = null;
 P.ch_own = a => {
@@ -256,6 +263,17 @@ P.ch_own = a => {
   <label class="f" for="own-q">The question it asks</label><input type="text" id="own-q" data-in="own-q" value="${esc(ownDraft.q)}" placeholder="How much does this help Mom and Dad?">
   <div class="card"><div class="li"><span class="grow">Weight</span>${stepper("own-w", "w", ownDraft.w, "weight", "").replace(/<b class="val">([^<]*)<\/b>/, `<b class="val">×$1</b>`)}</div><p class="tiny muted" style="margin:6px 0 0">1 = not at all · 5 = a lot. Era asks it for every thing, old and new, and in every decision.</p></div>
   <div class="btns">${!ownDraft.isNew ? btn("Delete lens", "own-del", null, "warn") : ""}${btn("Save lens", "own-save", null, "primary grow")}</div>`;
+};
+/* ---- Log a main quest: the goal, why, a rough size ---- */
+let logDraft = null;
+P.ch_log = () => {
+  const d = logDraft = logDraft || { t: "", why: "", size: null, area: null };
+  return `${chHead("Log a main quest", L("main"))}
+  <label class="f" for="lg-t">The goal</label><input type="text" id="lg-t" data-in="lg-t" value="${esc(d.t)}" placeholder="Learn to sing properly" maxlength="80">
+  <label class="f" for="lg-why">Why it matters</label><input type="text" id="lg-why" data-in="lg-why" value="${esc(d.why)}" placeholder="Music is when I feel most like me" maxlength="140">
+  <label class="f">Rough size</label>${SIZES.map(([k, n, ds]) => `<button class="opt" data-act="lg-size" data-arg="${k}" aria-pressed="${d.size === k}"><b>${n}</b><span class="tiny muted">${ds}</span></button>`).join("")}
+  <label class="f">Area${d.area ? "" : ` <span class="tiny muted">(skip it and Era guesses from the words)</span>`}</label><div class="chips">${S.areas.map(k => chip(esc(cname(k)), "lg-area", k, d.area === k, `--cc:${ccol(k)}`)).join("")}</div>
+  <div class="btns">${btn("Save and rate it", "lg-save", null, "primary block")}</div>`;
 };
 /* ---- Things ---- */
 P.ch_dump = () => {
@@ -294,9 +312,9 @@ P.ch_score = a => {
     else rows += `<div class="li"><span class="grow">${esc(l.id === "regret" ? "Regret at 80" : l.id === "hell" ? "Hell yeah?" : l.n)}${l.own && l.q ? `<br><span class="tiny muted">${esc(l.q)}</span>` : ""}</span>${dots5("th-sc", x.id + "|" + l.id, lensVal(x, l))}</div>${l.id === "hell" && lensVal(x, l) < 4 ? `<p class="tiny amber" style="margin:0 0 6px">${lensVal(x, l)} of 5 is not a hell yeah. Keep it only if regret is high.</p>` : ""}`;
   });
   const rank = sorted(CH().things.filter(y => y.scored || y === x)).indexOf(x) + 1;
-  return `${chHead(x.t, "Size")}<p class="tiny muted">Through your lenses · ${posOf(x)}</p><div class="card list">${rows}</div>
+  return `${chHead(x.t, "Back")}<p class="tiny muted">${a.log ? "Saved. Now rate it through your lenses, or skip" : "Through your lenses · " + posOf(x)}</p>${x.why ? `<p class="tiny">“${esc(x.why)}”</p>` : ""}<div class="card list">${rows}</div>
   <div class="card dark row"><span class="grow"><b class="big">Score ${score(x)}</b> of 100<br><span class="tiny" style="opacity:.8">${topLens(x)}</span></span><span class="tiny" style="opacity:.8">#${rank} so far</span></div>
-  <div class="btns">${btn("Next thing", "ch-next", x.id + "|scored", "primary block")}</div>`;
+  ${a.log ? `<div class="btns">${btn("Skip", "lg-done", x.id + "|skip", "")}${btn("Save", "lg-done", x.id + "|save", "primary grow")}</div>${btn("Save and log another", "lg-done", x.id + "|more", "block")}` : `<div class="btns">${btn("Next", "ch-next", x.id + "|scored", "primary block")}</div>`}`;
 };
 function topLens(x) { const ls = activeLenses().map(l => [l, l.w * (lensVal(x, l) - 1)]).sort((a, b) => b[1] - a[1]).slice(0, 2).filter(z => z[1] > 0); if (!ls.length) return "low on every lens"; return "heaviest on " + ls.map(([l]) => l.id === "areas" ? cname(S.areas.slice().sort((a, b) => areaRating(x, b) - areaRating(x, a))[0]) : l.id === "regret" ? "regret" : l.id === "hell" ? "excitement" : l.id === "window" ? "its window" : l.id === "undo" ? "being easy to undo" : l.n).join(" and "); }
 /* ---- Five views ---- */
@@ -304,10 +322,13 @@ const VIEWS = [["rank", "Rank"], ["matrix", "2×2"], ["urgent", "Urgent"], ["bal
 let chView = "rank";
 P.ch_views = () => {
   const C = CH(), list = C.things.filter(x => x.status !== "letgo");
-  let h = `${chHead("Your " + list.length + " things", "Choose")}<div class="seg small" role="tablist">${VIEWS.map(([k, n]) => `<button data-act="ch-view" data-arg="${k}" aria-pressed="${chView === k}">${n}</button>`).join("")}</div>`;
-  if (!list.length) return h + `<div class="card tiny">Add a few things first.</div>${btn("Add things", "go", "ch_dump", "primary block")}`;
-  if (chView === "rank") h += `<div class="card list">${sorted(list).map((x, i) => `<button class="li" data-act="go" data-arg="ch_thing" data-id="${x.id}"><span class="rankn">${i + 1}</span><span class="grow"><b>${esc(x.t)}</b><br>${costChips(x)}</span><span class="scorebar"><span class="bar slim"><i style="width:${score(x)}%;background:${ccol(x.area)}"></i></span><b>${x.scored ? score(x) : "–"}</b></span></button>`).join("")}</div><p class="tiny muted">Score from your lenses. Tap one to change it.</p>`;
-  if (chView === "matrix") h += `<div class="card">${matrixSVG(list)}</div><p class="tiny muted">Up: more impact through your lenses. Right: more time, money and energy together. Size: money.</p>`;
+  return `${chHead("Your " + list.length + " " + L("main").toLowerCase(), L("main"))}${viewsHTML(list)}<div class="btns">${btn("What fits this era", "ch-fit-open", null, "primary block")}</div>`;
+};
+function viewsHTML(list) {
+  let h = `<div class="seg small" role="tablist">${VIEWS.map(([k, n]) => `<button data-act="ch-view" data-arg="${k}" aria-pressed="${chView === k}">${n}</button>`).join("")}</div>`;
+  if (!list.length) return h + `<div class="card tiny">Log a few main quests first.</div>`;
+  if (chView === "rank") h += `<div class="card list">${sorted(list).map((x, i) => `<button class="li" data-act="go" data-arg="ch_thing" data-id="${x.id}"><span class="rankn">${i + 1}</span><span class="grow"><b>${esc(x.t)}</b> ${tagOf(x)}${x.why ? `<br><span class="tiny muted why">${esc(x.why)}</span>` : ""}<br>${costChips(x)}</span><span class="scorebar"><span class="bar slim"><i style="width:${x.scored ? score(x) : 0}%;background:${ccol(x.area)}"></i></span><b>${x.scored ? score(x) : "–"}</b></span></button>`).join("")}</div><p class="tiny muted">Score from your lenses; – means not rated yet. Tap one to change it.</p>`;
+  if (chView === "matrix") h += `<div class="card">${matrixSVG(list)}</div><p class="tiny muted">Up: more impact through your lenses. Right: more time, money and energy together (or the rough size, until it's sized). Bubble: money, or rough size.</p>`;
   if (chView === "urgent") { const med = list.map(score).sort((a, b) => a - b)[Math.floor(list.length / 2)]; const imp = x => score(x) >= Math.max(55, med), urg = x => x.sc.window === "now" || x.sc.window === "year";
     const Q = [["Do now", "window closing, matters", "var(--ink)", x => urg(x) && imp(x)], ["Schedule", "matters, any time", "var(--accent)", x => !urg(x) && imp(x)], ["Limit", "feels urgent, matters less", "var(--amber)", x => urg(x) && !imp(x)], ["Let go for now", "neither", "var(--muted)", x => !urg(x) && !imp(x)]];
     h += `<div class="quad">${Q.map(([n, d, c, f]) => `<div class="card" style="border-top:3px solid ${c}"><b style="color:${c}">${n}</b><div class="tiny muted">${d}</div>${sorted(list.filter(f)).map(x => `<button class="qi" data-act="go" data-arg="ch_thing" data-id="${x.id}">${esc(x.t)}</button>`).join("") || `<div class="tiny muted">–</div>`}</div>`).join("")}</div><p class="tiny muted">Urgent comes from each thing's window: “now or never” and “this year”. Important: a score of 55 or more.</p>`; }
@@ -323,38 +344,44 @@ P.ch_views = () => {
     const lessTop = S.less.map(i => [i.k, (act[i.k] || 0) / fr]).sort((a, b) => b[1] - a[1])[0];
     h += `<p class="tiny muted">What you rank first, against where Era says your free time went in the last 4 weeks.</p><div class="card">${show.map(k => { const r = ranked.indexOf(k); return `<div class="realrow"><span>${esc(cname(k))}</span><b>${r >= 0 ? "#" + (r + 1) : ""}</b><div class="bar"><i style="width:${(act[k] || 0) / max * 100}%;background:${ccol(k)}"></i></div><b class="${isLess(k) ? "warnc" : ""}">${Math.round((act[k] || 0) / fr * 100)}%</b></div>`; }).join("")}</div>
     ${worst ? `<div class="card mism tiny lh"><b>${esc(cname(worst.k))} is your #${worst.i + 1} but gets ${Math.round(worst.share * 100)}%.</b>${lessTop && lessTop[1] > 0.15 ? ` ${esc(cname(lessTop[0]))}, which you want less of, gets ${Math.round(lessTop[1] * 100)}%.` : ""} What fits this era can move hours from one to the other.</div>` : `<div class="card good tiny">Your time roughly follows your priorities.</div>`}`; }
-  return h + `<div class="btns">${btn("What fits this era", "go", "ch_fit", "primary block")}</div>`;
-};
+  return h;
+}
 function matrixSVG(list) {
   const W = 320, H = 260, m = 26; const xs = list.map(costIx), xmax = Math.max(0.5, ...xs);
   let g = `<line x1="${m}" y1="${H / 2}" x2="${W - 6}" y2="${H / 2}" stroke="var(--line2)" stroke-dasharray="3 3"/><line x1="${(W + m) / 2}" y1="6" x2="${(W + m) / 2}" y2="${H - 22}" stroke="var(--line2)" stroke-dasharray="3 3"/>`;
   g += `<text x="${m + 4}" y="16" class="ql good">Quick wins</text><text x="${W - 8}" y="16" text-anchor="end" class="ql blue">Big bets</text><text x="${m + 4}" y="${H - 28}" class="ql">Fill-ins</text><text x="${W - 8}" y="${H - 28}" text-anchor="end" class="ql bad">Sinks</text>`;
   g += `<text x="12" y="${H / 2}" class="qa" transform="rotate(-90 12 ${H / 2})" text-anchor="middle">impact</text><text x="${(W + m) / 2}" y="${H - 6}" class="qa" text-anchor="middle">cost: time + money + energy</text>`;
-  const seen = {};
-  list.forEach(x => { let cx = m + 10 + (costIx(x) / xmax) * (W - m - 30), cy = H - 30 - (score(x) / 100) * (H - 50); const key = Math.round(cx / 14) + ":" + Math.round(cy / 14), n = seen[key] = (seen[key] || 0) + 1; if (n > 1) { const a = n * 2.4; cx += Math.cos(a) * 16 * Math.ceil(n / 4); cy += Math.sin(a) * 16 * Math.ceil(n / 4); } const r = Math.min(16, 6 + Math.sqrt(Math.max(0, x.m1 + 12 * Math.max(0, x.mm))) / 80);
-    g += `<g data-act="go" data-arg="ch_thing" data-id="${x.id}" class="bub"><circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${ccol(x.area)}" fill-opacity=".8" stroke="var(--surface)" stroke-width="1.5"/><text x="${cx.toFixed(1)}" y="${(cy + r + 10).toFixed(1)}" text-anchor="middle" class="qb">${esc(x.t.length > 16 ? x.t.slice(0, 15) + "…" : x.t)}</text></g>`; });
+  const seen = {}, labels = [];
+  list.forEach(x => { let cx = m + 10 + (costIx(x) / xmax) * (W - m - 30), cy = H - 30 - ((x.scored ? score(x) : 50) / 100) * (H - 50); const key = Math.round(cx / 14) + ":" + Math.round(cy / 14), n = seen[key] = (seen[key] || 0) + 1; if (n > 1) { const a = n * 2.4; cx += Math.cos(a) * 16 * Math.ceil(n / 4); cy += Math.sin(a) * 16 * Math.ceil(n / 4); }
+    const r = x.sized ? Math.min(16, 6 + Math.sqrt(Math.max(0, x.m1 + 12 * Math.max(0, x.mm))) / 80) : { s: 6, m: 9, l: 13 }[x.size || "m"];
+    // Labels: anchored inward near the edges, and moved up or down so they don't sit on each other.
+    const anchor = cx > W * 0.72 ? "end" : cx < m + 40 ? "start" : "middle", lx = anchor === "end" ? cx + r : anchor === "start" ? cx - r : cx;
+    let ly = cy + r + 10; const box = y => labels.some(b => Math.abs(b.y - y) < 11 && Math.abs(b.x - lx) < 80);
+    if (box(ly)) ly = cy - r - 4; let k = 0; while (box(ly) && k++ < 6) ly += 11; labels.push({ x: lx, y: ly });
+    g += `<g data-act="go" data-arg="ch_thing" data-id="${x.id}" class="bub"><circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${ccol(x.area)}" fill-opacity=".8" stroke="var(--surface)" stroke-width="1.5"/><text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" class="qb">${esc(x.t.length > 18 ? x.t.slice(0, 17) + "…" : x.t)}</text></g>`; });
   return `<svg class="matrix" viewBox="0 0 ${W} ${H}" role="img" aria-label="Your things by impact and cost">${g}</svg>`;
 }
 /* ---- What fits ---- */
 let fitSel = null;
 P.ch_fit = () => {
   const C = CH(); if (!fitSel) fitSel = new Set(C.things.filter(x => x.status === "now").map(x => x.id));
-  const list = sorted(C.things.filter(x => x.status !== "letgo")), chosen = list.filter(x => fitSel.has(x.id)), t = totals(chosen), o = over(t), mv = movable();
+  const list = sorted(C.things.filter(x => x.status !== "letgo")), chosen = list.filter(x => fitSel.has(x.id)), t = totals(chosen), B = budgetsOn(), o = B ? over(t) : {}, mv = movable(), uns = chosen.filter(x => !x.sized);
   let msg = "";
   if (o.time) msg += `<b class="warnc">${hh(o.time)} a week over.</b> ${mv > 0 ? `Make room from what you want less of (${hh(mv)} can move), or untick something.` : "Untick something, or raise your time budget."}`;
   if (o.month) msg += ` <b class="warnc">${kmoney(o.month)} a month over.</b>`;
   if (o.pot) msg += ` <b class="warnc">${kmoney(o.pot)} more than you've saved.</b>`;
   if (o.energy) msg += ` <b class="warnc">${o.energy} drain point${o.energy > 1 ? "s" : ""} over.</b> Add something that recharges you, or drop something draining.`;
-  return `${chHead("What fits this era", "Choose")}<p class="tiny muted">Tick what you'll do. The bars fill as you go.</p><div id="fitbuds">${budgetsCard(chosen)}</div>
-  <div class="card list">${list.map(x => `<button class="li fitrow" data-act="fit-tog" data-arg="${x.id}" aria-pressed="${fitSel.has(x.id)}"><span class="chk" aria-hidden="true">${fitSel.has(x.id) ? "✓" : ""}</span><span class="grow"><b>${esc(x.t)}</b><br>${costChips(x)}</span><b class="score">${x.scored ? score(x) : "–"}</b></button>`).join("")}</div>
-  ${msg ? `<div class="card overcard tiny lh">${msg}<div class="btns">${o.time && mv > 0 ? btn("Make room", "fit-room", null, "sm primary") : ""}${btn("Suggest a set", "fit-suggest", null, "sm")}</div></div>` : chosen.length ? `<div class="card good tiny">Everything fits. ${C.room ? "Includes " + hh(C.room) + " made room for from " + esc(L("less").toLowerCase()) + "." : ""}</div>` : `<div class="btns">${btn("Suggest a set", "fit-suggest", null, "block")}</div>`}
+  return `${chHead("What fits this era", L("main"))}<p class="tiny muted">Tick what this era is for.${B ? " The bars fill as you go." : ""}</p>${B ? `<div id="fitbuds">${budgetsCard(chosen)}</div>` : `<div class="card tiny row"><span class="grow">Budgets skipped, so Era can't check what fits.</span>${btn("Set budgets", "go", "ch_time", "sm")}</div>`}
+  <div class="card list">${list.map(x => `<button class="li fitrow" data-act="fit-tog" data-arg="${x.id}" aria-pressed="${fitSel.has(x.id)}"><span class="chk" aria-hidden="true">${fitSel.has(x.id) ? "✓" : ""}</span><span class="grow"><b>${esc(x.t)}</b><br>${costChips(x)}${x.sized ? "" : ` <span class="tiny muted">not sized yet</span>`}</span><b class="score">${x.scored ? score(x) : "–"}</b></button>`).join("")}</div>
+  ${list.some(x => !x.sized) ? `<div class="card tiny row"><span class="grow">${uns.length ? `Size ${uns.length === 1 ? "“" + esc(uns[0].t) + "”" : uns.length + " ticked goals"} first: Era needs hours, money and energy to put ${uns.length === 1 ? "it" : "them"} in your week.` : `${list.filter(x => !x.sized).length} not sized yet. Size them to see what fits.`}</span>${btn("Size " + (uns.length === 1 ? "it" : "them"), "ch-size-start", null, "sm primary")}</div>` : ""}
+  ${msg ? `<div class="card overcard tiny lh">${msg}<div class="btns">${o.time && mv > 0 ? btn("Make room", "fit-room", null, "sm primary") : ""}${btn("Suggest a set", "fit-suggest", null, "sm")}</div></div>` : chosen.length ? (B && !uns.length ? `<div class="card good tiny">Everything fits. ${C.room ? "Includes " + hh(C.room) + " made room for from " + esc(L("less").toLowerCase()) + "." : ""}</div>` : "") : B ? `<div class="btns">${btn("Suggest a set", "fit-suggest", null, "block")}</div>` : ""}
   <div class="btns">${btn("Next: sort the rest", "fit-next", null, "primary block")}</div>`;
 };
 let sortDraft = null;
 P.ch_sort = () => {
   const C = CH(), rest = sorted(C.things.filter(x => !fitSel.has(x.id)));
   if (!sortDraft) { sortDraft = {}; rest.forEach((x, i) => { sortDraft[x.id] = x.status === "now" || x.status === "idea" ? (i < 2 ? "next" : "later") : x.status; }); }
-  return `${chHead("The rest waits, on purpose", "What fits")}<p class="muted">Next starts when one of now ends. Later gets a review date. Let go means not this era, no guilt.</p>
+  return `${chHead("The rest waits, on purpose", "What fits")}<p class="muted">Next starts when one of this era's ends. Later gets a review date. Let go means not this era, no guilt.</p>
   <div class="card list">${rest.map(x => `<div class="li col"><span><b>${esc(x.t)}</b> <span class="tiny muted">score ${score(x)}</span></span><div class="seg small" role="group">${[["next", "Next"], ["later", "Later"], ["letgo", "Let go"]].map(([k, n]) => `<button data-act="sort-set" data-arg="${x.id}|${k}" aria-pressed="${sortDraft[x.id] === k}">${n}</button>`).join("")}</div></div>`).join("") || `<p class="tiny muted" style="margin:8px 0">Everything is chosen.</p>`}</div>
   <div class="btns">${btn("Next: what changes in Era", "go", "ch_commit", "primary block")}</div>`;
 };
@@ -362,7 +389,7 @@ P.ch_commit = () => {
   const C = CH(), list = sorted(C.things.filter(x => fitSel && fitSel.has(x.id)));
   const fresh = list.filter(x => x.status !== "now"), keep = list.filter(x => x.status === "now"), drop = C.things.filter(x => x.status === "now" && !fitSel.has(x.id));
   return `${chHead("Here's what changes", "Back")}<div class="card list">${fresh.map(x => `<div class="li"><span class="grow"><b>${esc(x.t)}</b><br><span class="tiny muted">${esc(plannedLinks(x).text)}</span></span><span class="tiny muted">${esc(cname(x.area))}</span></div>`).join("") || `<p class="tiny muted" style="margin:8px 0">Nothing new to add to Era.</p>`}${keep.map(x => `<div class="li"><span class="grow"><b>${esc(x.t)}</b><br><span class="tiny muted">already in Era</span></span></div>`).join("")}${drop.map(x => `<div class="li"><span class="grow"><b>${esc(x.t)}</b><br><span class="tiny warnc">comes out of Era: its hours go back</span></span></div>`).join("")}</div>
-  <p class="tiny muted">Your shape, ${esc(L("lockin").toLowerCase())}s and weekends update. Choose keeps the money and energy side.</p>
+  <p class="tiny muted">Your shape, ${esc(L("lockin").toLowerCase())}s and weekends update. ${esc(L("main"))} keeps the money and energy side.</p>
   <div class="btns">${btn("Commit " + list.length + " thing" + (list.length === 1 ? "" : "s"), "ch-commit", null, "primary block")}</div>`;
 };
 /* ---- One thing ---- */
@@ -372,19 +399,22 @@ P.ch_thing = a => {
   let era = "";
   if (x.status === "now") { if (lk.moves && lk.moves.length) era = `${esc(L("shift"))}: ${S.moves.filter(m => lk.moves.includes(m.id)).map(m => cname(m.from) + " → " + cname(m.to) + " " + h1(m.h) + " h").join(", ")}`; if (lk.goal) era = esc(L("lockin")) + ": " + x.total + " h by " + fmtS(x.by); if (lk.quest) { const qu = S.quests.find(y => y.id === lk.quest); era = qu ? esc(spanLabel(qu, true)).replace(/^w/, "W") + (isAway(qu) ? " · trip" : "") : "Weekend of " + fmtS(x.date); } }
   if (x.eAfter != null) era += (era ? "<br>" : "") + `After: <b>${BACK[x.eAfter + 2].toLowerCase()}</b>` + (x.e != null ? ` · you guessed ${["drains a lot", "drains a bit", "neutral", "recharges a bit", "recharges a lot"][x.e + 2]}` : "");
-  return `${chHead(x.t, "Back")}<p class="tiny muted">${esc(cname(x.area))} · ${TYPES.find(y => y[0] === x.type)[1].toLowerCase()} · score ${score(x)}</p>
-  <div class="seg small" role="group">${STATUSES.slice(0, 4).map(([k, n]) => `<button data-act="th-status" data-arg="${x.id}|${k}" aria-pressed="${x.status === k}">${n}</button>`).join("")}</div>
+  return `${chHead(x.t, "Back")}<p class="tiny muted">${esc(cname(x.area))}${x.sized ? " · " + TYPES.find(y => y[0] === x.type)[1].toLowerCase() : ""} · ${x.scored ? "score " + score(x) : "not rated yet"}</p>
+  <label class="f" for="th-why">Why it matters</label><input type="text" id="th-why" data-in="th-why" data-id="${x.id}" value="${esc(x.why || "")}" placeholder="Why this one, in a line" maxlength="140">
+  <label class="f">Rough size</label><div class="seg small" role="group" aria-label="Rough size">${SIZES.map(([k, n]) => `<button data-act="th-size" data-arg="${x.id}|${k}" aria-pressed="${(x.size || "m") === k}">${n}</button>`).join("")}</div>
+  <label class="f">When</label><div class="seg small" role="group">${STATUSES.slice(0, 4).map(([k, n]) => `<button data-act="th-status" data-arg="${x.id}|${k}" aria-pressed="${x.status === k}">${n}</button>`).join("")}</div>
   ${x.status === "later" ? `<div class="li"><label class="grow" for="th-rev">Review on</label><input type="date" id="th-rev" data-in="th-review" data-id="${x.id}" value="${x.review || addD(t, 90)}" style="width:auto"></div>` : ""}
   ${era ? `<div class="card tiny">In Era: ${era}</div>` : ""}
+  ${x.sized ? "" : `<p class="tiny muted" style="margin:6px 0 0">Not sized in detail yet. Era asks for hours, money and energy when you pick it for this era.</p>`}
   <div class="card">${costChips(x)}<div class="li" style="margin-top:6px"><span class="grow tiny">This week</span><b>${h1(hoursFor(x, mondayOf(t), t))} of ${h1(w)} h</b></div><div class="li"><span class="grow tiny">Spent in ${monthName(ym)}</span><b>${money(spentIn(x, ym))}</b></div></div>
   <div class="btns">${x.type !== "oneoff" ? btn("+1 h today", "ch-hour", x.id, "grow") : ""}${btn("Log money spent", "ch-spend", x.id, "grow")}</div>
-  <div class="btns">${btn("Change size", "go", "ch_size", "grow").replace('data-arg="ch_size"', `data-arg="ch_size" data-id="${x.id}"`)}${btn("Change score", "go", "ch_score", "grow").replace('data-arg="ch_score"', `data-arg="ch_score" data-id="${x.id}"`)}</div>
+  <div class="btns">${btn(x.scored ? "Change rating" : "Rate it", "go", "ch_score", "grow").replace('data-arg="ch_score"', `data-arg="ch_score" data-id="${x.id}"`)}${btn(x.sized ? "Change size" : "Size in detail", "go", "ch_size", "grow").replace('data-arg="ch_size"', `data-arg="ch_size" data-id="${x.id}"`)}</div>
   <div class="btns">${btn("Delete", "ch-thing-del", x.id, "warn sm")}</div>`;
 };
 /* ---- Decisions ---- */
 P.ch_dec1 = a => {
   const dc = decision(a.id); if (!dc) return P.choose();
-  return `${chHead("What are you deciding?", "Choose", "Decision 1 of 3")}<input type="text" class="titlein" data-in="dc-q" data-id="${dc.id}" value="${esc(dc.q)}" placeholder="Buy a car?" aria-label="The question">
+  return `${chHead("What are you deciding?", L("main"), "Decision 1 of 3")}<input type="text" class="titlein" data-in="dc-q" data-id="${dc.id}" value="${esc(dc.q)}" placeholder="Buy a car?" aria-label="The question">
   <label class="f">Your options</label><div class="card list">${dc.opts.map((o, i) => `<div class="li"><span class="optl">${String.fromCharCode(65 + i)}</span><input type="text" class="grow" data-in="opt-n" data-id="${dc.id}" data-o="${o.id}" value="${esc(o.n)}" placeholder="Option ${String.fromCharCode(65 + i)}" aria-label="Option ${String.fromCharCode(65 + i)}">${dc.opts.length > 2 ? `<button class="icon-btn" data-act="opt-del" data-arg="${dc.id}|${o.id}" aria-label="Remove option">✕</button>` : ""}</div>`).join("")}${dc.opts.length < 4 ? `<button class="rowlink" data-act="opt-add" data-arg="${dc.id}"><span class="grow muted">+ Another option</span></button>` : ""}</div>
   <label class="f">Can you undo it?</label><div class="seg" role="group">${[["one", "One-way door"], ["two", "Two-way door"]].map(([k, n]) => `<button data-act="dc-door" data-arg="${dc.id}|${k}" aria-pressed="${dc.door === k}">${n}</button>`).join("")}</div><p class="tiny muted">One-way doors get a slower look and a review date in 3 months.</p>
   <div class="btns">${btn("Next: what each costs", "dc-next", dc.id + "|ch_dec2", "primary block")}</div>`;
@@ -410,7 +440,7 @@ P.ch_dec4 = a => {
   const dc = decision(a.id); if (!dc) return P.choose(); const sc = decScores(dc), win = sc[0].o, fl = decFlip(dc), chosen = dc.opts.find(o => o.id === dc.chosen);
   const sw1 = strengths(dc, win), run = sc[1] && sc[1].o, sw2 = run ? strengths(dc, run) : [];
   const tie = !chosen && sc[1] && sc[0].s === sc[1].s;
-  return `${chHead("", "Choose")}<p class="muted" style="margin:0">${esc(dc.q || "Your decision")}</p><h1>${tie ? "A tie: " + esc(sc[0].o.n) + " or " + esc(sc[1].o.n) : esc(chosen ? chosen.n : win.n) + (chosen ? "" : ", for now")}</h1>
+  return `${chHead("", L("main"))}<p class="muted" style="margin:0">${esc(dc.q || "Your decision")}</p><h1>${tie ? "A tie: " + esc(sc[0].o.n) + " or " + esc(sc[1].o.n) : esc(chosen ? chosen.n : win.n) + (chosen ? "" : ", for now")}</h1>
   <div class="card">${sc.map(({ o, s }) => `<div class="cmp"><span><b>${esc(o.n)}</b></span><div class="bar"><i style="width:${s}%;background:${o === win ? "var(--btn)" : "var(--muted)"}"></i></div><span class="t">${s}</span></div>`).join("")}</div>
   <div class="card tiny lh">${tie ? "Your lenses can't separate them. Let the gut check decide." : esc(win.n) + " wins"}${!tie && sw1.length ? " on <b>" + esc(sw1.slice(0, 2).join(" and ")) + "</b>" : ""}${tie ? "" : "."}${!tie && run && sw2.length ? " " + esc(run.n) + " wins on <b>" + esc(sw2.slice(0, 2).join(" and ")) + "</b>." : ""}${tie ? "" : fl ? `<br><span class="muted">It flips to ${esc(fl.to.n)} if ${esc(fl.row.n.toLowerCase())} matters ${fl.m}× more.</span>` : run ? `<br><span class="muted">No single lens flips it: a clear call.</span>` : ""}</div>
   ${!chosen ? `<div class="card tiny"><b>Gut check.</b> A coin chose “${esc(win.n)}”. How do you feel?<div class="btns">${btn("Relieved", "dc-gut", dc.id + "|relieved", "sm grow")}${btn("Disappointed", "dc-gut", dc.id + "|disappointed", "sm grow")}</div>${dc.gut === "disappointed" ? `<p class="amber" style="margin:4px 0 0">Part of you wants something else. Worth a second look before deciding.</p>` : dc.gut === "relieved" ? `<p class="goodc" style="margin:4px 0 0">Your gut agrees.</p>` : ""}</div>
@@ -420,7 +450,7 @@ P.ch_dec4 = a => {
 };
 P.ch_decreview = a => {
   const dc = decision(a.id); if (!dc) return P.choose(); const ch = dc.opts.find(o => o.id === dc.chosen) || {};
-  return `${chHead("", "Choose")}<p class="tiny muted">Decision · ${diffD(dc.at, today()) >= 60 ? Math.round(diffD(dc.at, today()) / 30) + " months" : diffD(dc.at, today()) + " days"} on</p><h1>${esc(ch.n || "")}: right call?</h1>
+  return `${chHead("", L("main"))}<p class="tiny muted">Decision · ${diffD(dc.at, today()) >= 60 ? Math.round(diffD(dc.at, today()) / 30) + " months" : diffD(dc.at, today()) + " days"} on</p><h1>${esc(ch.n || "")}: right call?</h1>
   <div class="card tiny lh">${dc.why ? `You chose it because <b>“${esc(dc.why)}”</b>.` : "You didn't write a reason."} It was ${esc(dc.q)}</div>
   <div class="btns col">${btn("Yes, still right", "dc-out", dc.id + "|yes", "primary block")}${btn("Partly", "dc-out", dc.id + "|part", "block")}${btn("No, decide again", "dc-out", dc.id + "|no", "block")}</div><p class="tiny muted">Either way, you chose it on purpose. Era keeps the reasons, so next time is faster.</p>`;
 };
@@ -431,7 +461,7 @@ P.ch_review = () => {
   const spent = C.things.reduce((a, x) => a + spentIn(x, ym), 0);
   let drained = 0; eachDay(first, end, d => { if (S.logs[d] && S.logs[d].energy === "low") drained++; });
   const nx = C.things.filter(x => x.status === "next"), gone = C.things.filter(x => x.status === "letgo"), laterDue = C.things.filter(x => x.status === "later" && x.review && x.review <= addD(today(), 7));
-  return `${chHead("How did " + monthName(ym) + " go?", "Choose", "Monthly check, 5 minutes")}<div class="card list">${now.map(x => { const done = hoursFor(x, first, end), want = x.type === "habit" ? weekly(x) * weeks : x.type === "project" ? weekly(x) * weeks : 0; const ok = !want || done >= want * 0.8;
+  return `${chHead("How did " + monthName(ym) + " go?", L("main"), "Monthly check, 5 minutes")}<div class="card list">${now.map(x => { const done = hoursFor(x, first, end), want = x.type === "habit" ? weekly(x) * weeks : x.type === "project" ? weekly(x) * weeks : 0; const ok = !want || done >= want * 0.8;
     return `<div class="li col"><span class="row"><span class="grow">${esc(x.t)}</span><b class="${ok ? "goodc" : "amber"}">${want ? h1(done) + " of " + h1(want) + " h" + (ok ? " ✓" : " · behind") : x.date ? fmtS(x.date) : ""}</b></span>${!ok ? `<div class="seg small" role="group">${[["keep", "Keep"], ["halve", "Halve it"], ["next", "Move to Next"]].map(([k, n]) => `<button data-act="rv-behind" data-arg="${x.id}|${k}">${n}</button>`).join("")}</div>` : ""}</div>`; }).join("") || `<p class="tiny muted" style="margin:8px 0">Nothing was chosen.</p>`}</div>
   <div class="card tiny lh">${C.cur} <b>${money(spent)} of ${money(C.month)}</b> spent on your things${now.some(x => x.m1 && x.date) ? " · trips set aside ✓" : ""}<br>⚡ Drained on ${drained} day${drained === 1 ? "" : "s"}${drained ? ", " + (now.filter(x => x.e < 0).map(x => x.t).slice(0, 2).join(" and ") || "a heavy month") : ""}.</div>
   ${nx.length ? `<h3>Next</h3><div class="card list">${nx.map(x => `<div class="li"><span class="grow">${esc(x.t)}</span>${btn("Start now", "rv-start", x.id, "sm")}</div>`).join("")}</div>` : ""}
@@ -443,25 +473,32 @@ P.ch_review = () => {
 /* ======================= Actions ======================= */
 const chNum = v => { const n = Math.round(+String(v).replace(/[^\d.-]/g, "")); return isFinite(n) ? n : 0; };
 function goThing(next) { if (next) { NAV = NAV.slice(0, -1).concat([next]); render(); window.scrollTo(0, 0); } }
-function nextToSize(after) {
-  const C = CH(), list = C.things.filter(x => x.status !== "letgo"), i = list.findIndex(x => x.id === after), rest = list.slice(i + 1).concat(list.slice(0, i + 1));
-  return rest.find(x => !x.scored && x.id !== after);
-}
 const CH_ACT = {
   "ch-budget": a => { const C = CH(); C.time = Math.max(0, Math.min(60, C.time + (a.endsWith("+") ? 1 : -1))); save(); rerender(); },
   "ch-cur": c => { CH().cur = c; save(); rerender(); },
   "ch-energy": v => { CH().energy = +v; save(); rerender(); },
   "ch-lens-on": id => { const C = CH(); const std = C.lenses.find(l => l.id === id), own = C.own.find(l => l.id === id); const l = std || own; if (l) l.on = !l.on; save(); rerender(); },
   "ch-lens-w": a => { const [id, dir] = a.split("|"); const C = CH(); const l = C.lenses.find(x => x.id === id) || C.own.find(x => x.id === id); l.w = Math.max(0.5, Math.min(3, l.w + (dir === "+" ? 0.5 : -0.5))); save(); rerender(); },
-  "ch-setup-done": () => { const C = CH(); C.setup = true; C.since = C.since || today(); save(); NAV = [{ p: "choose" }, { p: "ch_dump" }]; render(); window.scrollTo(0, 0); },
+  "ch-setup-done": () => { const C = CH(); C.setup = true; C.budgets = "set"; C.since = C.since || today(); save(); NAV = [{ p: "choose" }, { p: "ch_fit" }]; render(); window.scrollTo(0, 0); },
+  "ch-budget-skip": () => { const C = CH(); C.budgets = "skipped"; C.since = C.since || today(); save(); NAV = [{ p: "choose" }, { p: "ch_fit" }]; render(); window.scrollTo(0, 0); toast("Budgets skipped. Set them any time."); },
+  "ch-fit-open": () => { const C = CH(); fitSel = null; go(C.setup || C.budgets === "skipped" ? "ch_fit" : "ch_time"); },
+  "lg-size": k => { logDraft.size = k; rerender(); },
+  "lg-area": k => { logDraft.area = logDraft.area === k ? null : k; rerender(); },
+  "lg-save": () => { const d = logDraft, t = (d.t || "").trim(); if (!t) { toast("Write the goal first"); return; } if (!d.size) { toast("Pick a rough size"); return; }
+    const x = newThing(t); x.why = (d.why || "").trim(); x.size = d.size; if (d.area) x.area = d.area; CH().things.push(x); CH().since = CH().since || today(); logDraft = null; save();
+    NAV = [{ p: "choose" }, { p: "ch_score", id: x.id, log: 1 }]; render(); window.scrollTo(0, 0); },
+  "lg-done": a => { const [id, how] = a.split("|"); const x = thing(id); if (how !== "skip") x.scored = true; save();
+    NAV = how === "more" ? [{ p: "choose" }, { p: "ch_log" }] : [{ p: "choose" }]; render(); window.scrollTo(0, 0); toast("Saved: " + x.t + (x.scored ? " · score " + score(x) : "")); },
+  "th-size": a => { const [id, k] = a.split("|"); thing(id).size = k; save(); rerender(); },
   "own-w": a => { ownDraft.w = Math.max(0.5, Math.min(3, ownDraft.w + (a.endsWith("+") ? 0.5 : -0.5))); rerender(); },
   "own-save": () => { const n = (ownDraft.n || "").trim(); if (!n) { toast("Give it a name"); return; } const C = CH(); const o = { id: ownDraft.id, n, q: (ownDraft.q || "").trim(), w: ownDraft.w, on: true }; const i = C.own.findIndex(x => x.id === o.id); if (i >= 0) C.own[i] = o; else C.own.push(o); ownDraft = null; save(); back(); toast("Lens saved: " + n); },
   "own-del": () => { const C = CH(); C.own = C.own.filter(x => x.id !== ownDraft.id); ownDraft = null; save(); back(); },
   "ch-dump-add": () => { const el = $("#dump-in"); const t = el && el.value.trim(); if (!t) { toast("Type a thing first"); return; } CH().things.push(newThing(t)); save(); rerender(); setTimeout(() => { const e2 = $("#dump-in"); if (e2) e2.focus(); }, 0); },
   "ch-dump-q": id => { const q = S.quests.find(y => y.id === id); if (!q) return; const x = newThing(q.title); x.area = S.areas.includes(q.area) ? q.area : x.area; CH().things.push(x); save(); rerender(); },
   "ch-del": id => { const C = CH(); const x = thing(id); if (x) unlinkThing(x); C.things = C.things.filter(y => y.id !== id); save(); rerender(); },
-  "ch-size-start": () => { const C = CH(); if (!C.things.length) { toast("Add a thing first"); return; } const x = C.things.find(y => !y.scored && y.status !== "letgo") || C.things[0]; go("ch_size", { id: x.id }); },
-  "ch-add": () => { NAV = [{ p: "choose" }, { p: "ch_dump" }]; render(); window.scrollTo(0, 0); setTimeout(() => { const e = $("#dump-in"); if (e) e.focus(); }, 0); },
+  "ch-size-start": () => { const C = CH(), ticked = fitSel ? C.things.filter(y => fitSel.has(y.id) && !y.sized) : [];
+    sizeQ = (ticked.length ? ticked : C.things.filter(y => !y.sized && y.status !== "letgo")).map(y => y.id); if (!sizeQ.length) { toast("All sized"); return; } go("ch_size", { id: sizeQ[0] }); },
+  "ch-add": () => { logDraft = null; NAV = [{ p: "choose" }, { p: "ch_log" }]; render(); window.scrollTo(0, 0); setTimeout(() => { const e = $("#lg-t"); if (e) e.focus(); }, 0); },
   "th-area": a => { const [id, k] = a.split("|"); const x = thing(id); x.area = k; save(); rerender(); },
   "th-type": a => { const [id, k] = a.split("|"); const x = thing(id); x.type = k; save(); rerender(); },
   "th-num": a => { const [id, f, step, dir] = a.split("|"); const x = thing(id); const st = +step; x[f] = Math.max(f === "days" ? 1 : st, r2((x[f] || 0) + (dir === "+" ? st : -st))); save(); rerender(); },
@@ -470,15 +507,16 @@ const CH_ACT = {
   "th-win": a => { const [id, k] = a.split("|"); const x = thing(id); x.sc.window = k; x.scored = true; save(); rerender(); },
   "th-undo": a => { const [id, k] = a.split("|"); const x = thing(id); x.sc.undo = k; x.scored = true; save(); rerender(); },
   "ch-next": a => { const [id, how] = a.split("|"); const x = thing(id); if (how === "scored") { x.sized = true; x.scored = true; } if (how === "skip") x.sized = true; save();
-    const nx = nextToSize(id); if (nx) { goThing({ p: "ch_size", id: nx.id }); return; } NAV = [{ p: "choose" }, { p: "ch_views" }]; chView = "rank"; render(); window.scrollTo(0, 0); toast("All sized. Here they are, ranked."); },
+    sizeQ = sizeQ.filter(y => y !== id && thing(y) && !thing(y).sized); if (sizeQ.length) { goThing({ p: "ch_size", id: sizeQ[0] }); return; }
+    NAV = [{ p: "choose" }, { p: "ch_fit" }]; render(); window.scrollTo(0, 0); toast("All sized. Now tick what this era is for."); },
   "ch-view": v => { chView = v; rerender(); },
   "fit-tog": id => { fitSel = fitSel || new Set(); if (fitSel.has(id)) fitSel.delete(id); else fitSel.add(id); rerender(); },
   "fit-suggest": () => { fitSel = new Set(suggestSet()); rerender(); toast("Best value for its cost first, within all budgets"); },
   "fit-room": () => { const C = CH(), list = C.things.filter(x => fitSel.has(x.id)), o = over(totals(list)); const add = Math.min(o.time, movable()); C.time = r2(C.time + add); C.room = r2((C.room || 0) + add); save(); rerender(); toast("Made room: +" + hh(add) + " a week from " + L("less").toLowerCase()); },
-  "fit-next": () => { const C = CH(), list = C.things.filter(x => fitSel.has(x.id)); if (!list.length) { toast("Tick at least one thing"); return; } if (!fits(totals(list))) { toast("Over a budget. Make room or untick something first."); return; } sortDraft = null; go("ch_sort"); },
+  "fit-next": () => { const C = CH(), list = C.things.filter(x => fitSel.has(x.id)); if (!list.length) { toast("Tick at least one goal"); return; } const un = list.find(x => !x.sized); if (un) { toast("Size “" + un.t + "” first"); return; } if (!fits(totals(list))) { toast("Over a budget. Make room or untick something first."); return; } sortDraft = null; go("ch_sort"); },
   "sort-set": a => { const [id, k] = a.split("|"); sortDraft[id] = k; rerender(); },
   "ch-commit": () => { const C = CH(); C.things.forEach(x => { if (fitSel.has(x.id)) setStatus(x, "now"); else if (sortDraft && sortDraft[x.id]) setStatus(x, sortDraft[x.id]); else if (x.status === "now") setStatus(x, "next"); });
-    snapshot("Choose: " + C.things.filter(x => x.status === "now").map(x => x.t).slice(0, 3).join(", ")); fitSel = null; sortDraft = null; save(); NAV = [{ p: "choose" }]; render(); window.scrollTo(0, 0); toast("Committed to Era"); },
+    snapshot(L("main") + ": " + C.things.filter(x => x.status === "now").map(x => x.t).slice(0, 3).join(", ")); fitSel = null; sortDraft = null; save(); NAV = [{ p: "choose" }]; render(); window.scrollTo(0, 0); toast("Committed to Era"); },
   "ch-hour": id => { const x = thing(id); const from = logHourTo(x); if (!from) { toast("No free hour left today to move"); return; } save(); rerender(); toast("+1 h " + x.t + ", from " + cname(from).toLowerCase()); },
   "ch-spend": id => spendSheet(id),
   "th-status": a => { const [id, st] = a.split("|"); const x = thing(id); setStatus(x, st); save(); rerender(); toast(x.t + ": " + STATUSES.find(s => s[0] === st)[1]); },
@@ -507,6 +545,8 @@ const CH_IN = {
   "ch-pot": v => { CH().pot = Math.max(0, chNum(v)); save(); },
   "own-n": v => { ownDraft.n = v; }, "own-q": v => { ownDraft.q = v; },
   "th-t": (v, el) => { const x = thing(el.dataset.id); if (v.trim()) { x.t = v.trim(); save(); } },
+  "th-why": (v, el) => { thing(el.dataset.id).why = v.trim(); save(); },
+  "lg-t": v => { logDraft.t = v; }, "lg-why": v => { logDraft.why = v; },
   "th-by": (v, el) => { if (v) { thing(el.dataset.id).by = v; save(); rerender(); } },
   "th-m1": (v, el) => { thing(el.dataset.id).m1 = Math.max(0, chNum(v)); save(); },
   "th-mm": (v, el) => { thing(el.dataset.id).mm = chNum(v); save(); },
@@ -517,7 +557,8 @@ const CH_IN = {
   "opt-mm": (v, el) => { decision(el.dataset.id).opts.find(o => o.id === el.dataset.o).mm = chNum(v); save(); },
   "dc-why": (v, el) => { decision(el.dataset.id).why = v; save(); }
 };
-const CH_LIVE = ["own-n", "own-q", "dc-q", "opt-n", "dc-why"];
+const CH_LIVE = ["own-n", "own-q", "dc-q", "opt-n", "dc-why", "lg-t", "lg-why"];
+let sizeQ = [];
 const CH_AFTER = {
   ch_dump: () => { const el = $("#dump-in"); if (el) el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); CH_ACT["ch-dump-add"](); } }); }
 };

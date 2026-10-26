@@ -566,93 +566,116 @@ const NATIVE_STUB = () => {
   ok(errs.length === 0, 'no page errors: ' + errs.join(' | '));
   await p.context().close();
 
-  /* ---------------- C1 · Set up Choose ---------------- */
-  section = 'C1 Set up Choose';
+  /* ---------------- C1 · Main quests: log, why, size, rate ---------------- */
+  section = 'C1 Main quests';
   p = await newPage();
   await onboard(p);
   const C = async () => (await S(p)).choose;
   const tid = async t => (await C()).things.find(x => x.t === t).id;
   await p.click('[data-tab=choose]');
-  ok((await text(p)).includes('Ten things. One week.'), 'Choose intro');
-  await p.click('[data-act=go][data-arg=ch_time]');
-  ok((await text(p)).includes('can move'), 'shows how many hours can move');
+  ok((await p.textContent('#tab-main')) === 'Main quests' && (await text(p)).includes('The big goals'), 'Main quests intro');
+  // lenses, with one of your own
+  await p.click('[data-act=go][data-arg=ch_lenses]');
+  ok((await p.$$('.tgl')).length === 5, 'five standard lenses');
+  await p.click('[data-act=ch-lens-w][data-arg="areas|+"]'); let c = await C(); ok(c.lenses.find(l => l.id === 'areas').w === 2.5, 'lens weight');
+  await p.click('[data-act=ch-lens-on][data-arg=undo]'); c = await C(); ok(!c.lenses.find(l => l.id === 'undo').on, 'lens off');
+  await p.click('[data-act=ch-lens-on][data-arg=undo]');
+  await p.click('[data-act=go][data-arg=ch_own]'); await p.click('[data-act=own-save]'); ok((await p.textContent('.toast')).includes('name'), 'own lens needs a name');
+  await p.fill('#own-name', 'Good for my parents'); await p.fill('#own-q', 'How much does this help Mom and Dad?'); await p.click('[data-act=own-w][data-arg="w|+"]'); await p.click('[data-act=own-save]');
+  c = await C(); const own = c.own[0]; ok(own && own.n === 'Good for my parents' && own.w === 1.5 && own.q.includes('Mom'), 'own lens saved');
+  await p.click('[data-act=back]'); ok(!c.setup, 'no budgets needed to start');
+  // log: the goal, why, a rough size; then rate it straight away
+  await p.click('[data-act=ch-add]'); await p.click('[data-act=lg-save]'); ok((await p.textContent('.toast')).includes('goal first'), 'needs the goal');
+  await p.fill('#lg-t', 'Call and visit parents'); await p.fill('#lg-why', 'They are getting older'); await p.click('[data-act=lg-save]'); ok((await p.textContent('.toast')).includes('rough size'), 'needs a rough size');
+  await p.click('[data-act=lg-size][data-arg=m]'); ok((await p.inputValue('#lg-t')) === 'Call and visit parents' && (await p.inputValue('#lg-why')) === 'They are getting older', 'typing survives a tap');
+  await p.click('[data-act=lg-save]');
+  c = await C(); let x0 = c.things[0]; ok(x0.why === 'They are getting older' && x0.size === 'm' && x0.area === 'family' && !x0.sized && x0.status === 'idea', 'logged with why and size, area guessed, not sized yet');
+  ok((await text(p)).includes('rate it through your lenses') && (await text(p)).includes('Good for my parents') && (await text(p)).includes('They are getting older'), 'rating right after logging, with your own lens');
+  const rate = async (id, list) => { for (const a of list) await p.click(`[data-act=th-sc][data-arg="${id}|${a}"]`); };
+  let id = x0.id; await rate(id, ['a:family|5', 'regret|5', 'hell|5', `${own.id}|5`]); ok((await text(p)).match(/Score \d+/), 'score shown');
+  await p.click(`[data-act=lg-done][data-arg="${id}|more"]`); ok(await p.isVisible('#lg-t') && (await p.inputValue('#lg-t')) === '', 'save and log another');
+  await p.fill('#lg-t', 'Gym 4x a week'); await p.fill('#lg-why', 'Feel strong again'); await p.click('[data-act=lg-size][data-arg=m]'); await p.click('[data-act=lg-save]');
+  id = await tid('Gym 4x a week'); await rate(id, ['a:health|5', 'regret|4', 'hell|4']); await p.click(`[data-act=lg-done][data-arg="${id}|more"]`);
+  await p.fill('#lg-t', 'CFA exam prep'); await p.fill('#lg-why', 'The analyst role'); await p.click('[data-act=lg-size][data-arg=l]'); await p.click('[data-act=lg-save]');
+  id = await tid('CFA exam prep'); await rate(id, ['a:learn|5', 'regret|4', 'hell|3']); ok((await text(p)).includes('not a hell yeah'), 'hell yeah warning below 4');
+  await p.click(`[data-act=th-win][data-arg="${id}|year"]`); await p.click(`[data-act=lg-done][data-arg="${id}|more"]`);
+  await p.fill('#lg-t', 'Goa trip with friends'); await p.fill('#lg-why', 'Haven\'t been away together in years'); await p.click('[data-act=lg-size][data-arg=s]'); await p.click('[data-act=lg-save]');
+  id = await tid('Goa trip with friends'); await rate(id, ['a:trips|5', 'a:friends|5', 'regret|4', 'hell|5']); await p.click(`[data-act=lg-done][data-arg="${id}|more"]`);
+  await p.fill('#lg-t', 'Learn guitar'); await p.click('[data-act=lg-size][data-arg=m]'); await p.click('[data-act=lg-save]');
+  id = await tid('Learn guitar'); await p.click(`[data-act=lg-done][data-arg="${id}|skip"]`); ok(!(await C()).things.find(x => x.id === id).scored && (await text(p)).includes('All your main quests'), 'rating can be skipped; back to Main quests');
+  await p.click('[data-act=ch-add]'); await p.fill('#lg-t', 'Buy a car'); await p.fill('#lg-why', 'Weekend drives with family'); await p.click('[data-act=lg-size][data-arg=l]'); await p.click('[data-act=lg-area][data-arg=family]'); await p.click('[data-act=lg-save]');
+  id = await tid('Buy a car'); await p.click(`[data-act=th-undo][data-arg="${id}|hard"]`); await p.click(`[data-act=lg-done][data-arg="${id}|save"]`);
+  ok((await C()).things.find(x => x.id === id).area === 'family', 'area picked by hand');
+  await p.click('[data-act=ch-add]'); await p.fill('#lg-t', 'Spanish'); await p.click('[data-act=lg-size][data-arg=s]'); await p.click('[data-act=lg-save]'); id = await tid('Spanish'); await p.click(`[data-act=lg-done][data-arg="${id}|skip"]`);
+  c = await C(); ok(c.things.length === 7, 'seven main quests logged');
+  const gt = t => c.things.find(x => x.t === t);
+  ok(gt('Call and visit parents').area === 'family' && gt('Gym 4x a week').area === 'health' && gt('Goa trip with friends').area === 'trips', 'areas guessed from the words');
+  ok(gt('CFA exam prep').type === 'project' && gt('Goa trip with friends').type === 'oneoff' && gt('Buy a car').type === 'oneoff' && gt('Learn guitar').type === 'habit', 'types guessed from the words');
+  ok((await text(p)).includes('7 goals') && (await text(p)).includes('Haven\'t been away together') && (await p.$$('#view .card.list .li .rankn')).length === 7, 'ranked on the home screen, with why');
+  await p.click(`[data-act=go][data-arg=ch_thing][data-id="${gt('Spanish').id}"]`); ok((await text(p)).includes('Not sized in detail yet'), 'goal page');
+  await p.fill('#th-why', 'Travel to Spain one day'); await p.press('#th-why', 'Tab'); await p.click(`[data-act=th-size][data-arg="${gt('Spanish').id}|m"]`);
+  c = await C(); ok(gt('Spanish') && c.things.find(x => x.t === 'Spanish').why === 'Travel to Spain one day' && c.things.find(x => x.t === 'Spanish').size === 'm', 'why and size can change');
+  await p.click(`[data-act=ch-thing-del][data-arg="${gt('Spanish').id}"]`); await p.click('.sheet [data-no]'); c = await C(); ok(c.things.length === 6, 'removed one');
+
+  /* ---------------- C2 · Budgets, then size in detail ---------------- */
+  section = 'C2 Budgets and size';
+  await p.click('[data-tab=choose]'); await p.click('[data-act=ch-fit-open]');
+  ok((await text(p)).includes('can move') && await p.isVisible('[data-act=ch-budget-skip]'), 'budgets asked when picking for this era, and can be skipped');
   await p.click('[data-act=ch-budget][data-arg="time|+"]'); await p.click('[data-act=ch-budget][data-arg="time|+"]');
-  let c = await C(); ok(c.time === 10, 'time budget 10 h a week');
+  c = await C(); ok(c.time === 10, 'time budget 10 h a week');
   await p.click('[data-act=go][data-arg=ch_money]');
   await p.fill('#ch-month', '20000'); await p.press('#ch-month', 'Tab'); await p.fill('#ch-pot', '150000'); await p.press('#ch-pot', 'Tab');
   await p.click('[data-act=ch-cur][data-arg="$"]'); c = await C(); ok(c.cur === '$', 'currency can change'); await p.click('[data-act=ch-cur][data-arg="₹"]');
   c = await C(); ok(c.month === 20000 && c.pot === 150000 && c.cur === '₹', 'money budgets');
   await p.click('[data-act=go][data-arg=ch_energy]'); await p.click('[data-act=ch-energy][data-arg="6"]'); await p.click('[data-act=ch-energy][data-arg="4"]');
   c = await C(); ok(c.energy === 4, 'energy budget');
-  await p.click('[data-act=go][data-arg=ch_lenses]');
-  ok((await p.$$('.tgl')).length === 5, 'five standard lenses');
-  await p.click('[data-act=ch-lens-w][data-arg="areas|+"]'); c = await C(); ok(c.lenses.find(l => l.id === 'areas').w === 2.5, 'lens weight');
-  await p.click('[data-act=ch-lens-on][data-arg=undo]'); c = await C(); ok(!c.lenses.find(l => l.id === 'undo').on, 'lens off');
-  await p.click('[data-act=ch-lens-on][data-arg=undo]');
-  await p.click('[data-act=go][data-arg=ch_own]'); await p.click('[data-act=own-save]'); ok((await p.textContent('.toast')).includes('name'), 'own lens needs a name');
-  await p.fill('#own-name', 'Good for my parents'); await p.fill('#own-q', 'How much does this help Mom and Dad?'); await p.click('[data-act=own-w][data-arg="w|+"]'); await p.click('[data-act=own-save]');
-  c = await C(); const own = c.own[0]; ok(own && own.n === 'Good for my parents' && own.w === 1.5 && own.q.includes('Mom'), 'own lens saved');
-  await p.click('[data-act=ch-setup-done]'); c = await C(); ok(c.setup && c.since === '2026-10-22', 'setup done');
-  ok((await text(p)).includes('What do you want to do?'), 'on to your things');
-
-  /* ---------------- C2 · Size and score ---------------- */
-  section = 'C2 Size and score';
-  for (const t of ['Call and visit parents', 'Gym 4x a week', 'CFA exam prep', 'Goa trip with friends', 'Learn guitar', 'Buy a car', 'Spanish']) { await p.fill('#dump-in', t); await p.press('#dump-in', 'Enter'); }
-  c = await C(); ok(c.things.length === 7, 'seven things added with Enter');
-  const gt = t => c.things.find(x => x.t === t);
-  ok(gt('Call and visit parents').area === 'family' && gt('Gym 4x a week').area === 'health' && gt('Goa trip with friends').area === 'trips', 'areas guessed from the words');
-  ok(gt('CFA exam prep').type === 'project' && gt('Goa trip with friends').type === 'oneoff' && gt('Buy a car').type === 'oneoff' && gt('Learn guitar').type === 'habit', 'types guessed from the words');
-  await p.click(`[data-act=ch-del][data-arg="${gt('Spanish').id}"]`); c = await C(); ok(c.things.length === 6, 'removed one');
+  await p.click('[data-act=ch-setup-done]'); c = await C(); ok(c.setup && c.budgets === 'set' && c.since === '2026-10-22', 'budgets set');
+  ok((await text(p)).includes('What fits this era') && (await text(p)).includes('6 not sized yet'), 'on to what fits; goals need sizing');
   await p.click('[data-act=ch-size-start]');
   // 1 parents: 2.5 h a week, recharges
-  let id = await tid('Call and visit parents');
+  id = await tid('Call and visit parents');
   await p.click(`[data-act=th-num][data-arg="${id}|h|0.5|+"]`); await p.click(`[data-act=th-e][data-arg="${id}|1"]`);
-  await p.click('[data-act=go][data-arg=ch_score]');
-  ok((await text(p)).includes('Good for my parents'), 'own lens asked when scoring');
-  for (const a of ['a:family|5', 'regret|5', 'hell|5', `${own.id}|5`]) await p.click(`[data-act=th-sc][data-arg="${id}|${a}"]`);
-  ok((await text(p)).match(/Score \d+/), 'score shown');
-  await p.click('[data-act=ch-next]');
+  await p.click('[data-act=go][data-arg=ch_score]'); ok((await text(p)).includes('Good for my parents'), 'own lens asked when scoring'); await p.click('[data-act=ch-next]');
   // 2 gym: 5 h, ₹3,000 a month
-  id = await tid('Gym 4x a week'); ok((await p.inputValue('[data-in=th-t]')) === 'Gym 4x a week', 'next thing to size');
+  id = await tid('Gym 4x a week'); ok((await p.inputValue('[data-in=th-t]')) === 'Gym 4x a week', 'next goal to size');
   for (let i = 0; i < 6; i++) await p.click(`[data-act=th-num][data-arg="${id}|h|0.5|+"]`);
   await p.fill('#th-mm', '3000'); await p.press('#th-mm', 'Tab'); await p.click(`[data-act=th-e][data-arg="${id}|1"]`);
-  await p.click('[data-act=go][data-arg=ch_score]'); for (const a of ['a:health|5', 'regret|4', 'hell|4']) await p.click(`[data-act=th-sc][data-arg="${id}|${a}"]`); await p.click('[data-act=ch-next]');
-  // 3 CFA: project by 31 Jan, ₹60,000, drains a lot, window this year
+  await p.click('[data-act=go][data-arg=ch_score]'); await p.click('[data-act=ch-next]');
+  // 3 CFA: project by 31 Jan, ₹60,000, drains a lot
   id = await tid('CFA exam prep');
   await p.fill('#th-by', '2027-01-31'); await p.press('#th-by', 'Tab');
   await p.fill('#th-m1', '60000'); await p.press('#th-m1', 'Tab'); await p.click(`[data-act=th-e][data-arg="${id}|-2"]`);
   ok((await text(p)).includes('a week for 15 weeks'), 'project shows hours a week');
-  await p.click('[data-act=go][data-arg=ch_score]'); for (const a of ['a:learn|5', 'regret|4', 'hell|3']) await p.click(`[data-act=th-sc][data-arg="${id}|${a}"]`);
-  ok((await text(p)).includes('not a hell yeah'), 'hell yeah warning below 4');
-  await p.click(`[data-act=th-win][data-arg="${id}|year"]`); await p.click('[data-act=ch-next]');
+  await p.click('[data-act=go][data-arg=ch_score]'); await p.click('[data-act=ch-next]');
   // 4 Goa: 3 days, ₹35,000, recharges a lot
   id = await tid('Goa trip with friends');
   await p.fill('#th-m1', '35000'); await p.press('#th-m1', 'Tab'); await p.click(`[data-act=th-e][data-arg="${id}|2"]`);
-  await p.click('[data-act=go][data-arg=ch_score]'); for (const a of ['a:trips|5', 'a:friends|5', 'regret|4', 'hell|5']) await p.click(`[data-act=th-sc][data-arg="${id}|${a}"]`); await p.click('[data-act=ch-next]');
-  // 5 guitar: ₹2,500 a month; skip the lenses
+  await p.click('[data-act=go][data-arg=ch_score]'); await p.click('[data-act=ch-next]');
+  // 5 guitar: ₹2,500 a month
   id = await tid('Learn guitar'); await p.fill('#th-mm', '2500'); await p.press('#th-mm', 'Tab'); await p.click(`[data-act=th-e][data-arg="${id}|1"]`);
   await p.click('[data-act=go][data-arg=ch_score]'); await p.click('[data-act=ch-next]');
-  // 6 car: ₹8,00,000 + ₹15,000 a month, hard to undo
+  // 6 car: ₹8,00,000 + ₹15,000 a month
   id = await tid('Buy a car'); await p.fill('#th-m1', '800000'); await p.press('#th-m1', 'Tab'); await p.fill('#th-mm', '15000'); await p.press('#th-mm', 'Tab');
-  await p.click('[data-act=go][data-arg=ch_score]'); await p.click(`[data-act=th-undo][data-arg="${id}|hard"]`); await p.click('[data-act=ch-next]');
-  c = await C(); ok(c.things.every(x => x.scored), 'all sized and scored');
+  await p.click('[data-act=go][data-arg=ch_score]'); await p.click('[data-act=ch-next]');
+  c = await C(); ok(c.things.every(x => x.scored && x.sized), 'all sized and scored');
+  ok((await text(p)).includes('What fits this era') && !(await text(p)).includes('not sized yet'), 'back on what fits, all sized');
   const sc = await p.evaluate(() => { const C = window.__era.S().choose; return Object.fromEntries(C.things.map(x => [x.t, window.__era.score(x)])); });
   ok(sc['Call and visit parents'] > sc['Buy a car'] && sc['Goa trip with friends'] > sc['Learn guitar'], 'scores follow the lenses ' + JSON.stringify(sc));
   ok(await p.evaluate(() => window.__era.weekly(window.__era.S().choose.things.find(x => x.t === 'CFA exam prep'))) === 2.5, 'project hours spread over the weeks');
 
   /* ---------------- C3 · Views ---------------- */
   section = 'C3 Views';
-  ok((await text(p)).includes('Your 6 things'), 'lands on the ranked view');
+  await p.click('[data-tab=choose]'); ok((await text(p)).includes('6 goals'), 'six on Main quests');
   const firstRank = await p.textContent('#view .card.list .li b'); ok(firstRank.includes('Call and visit parents'), 'highest score first: ' + firstRank);
   await p.click('[data-act=ch-view][data-arg=matrix]'); ok((await p.$$('svg.matrix .bub')).length === 6, 'impact against cost: 6 bubbles');
   await p.click('[data-act=ch-view][data-arg=urgent]'); ok((await p.$$('.quad .card')).length === 4 && (await p.textContent('.quad')).includes('CFA exam prep'), 'urgent and important');
   await p.click('[data-act=ch-view][data-arg=balance]'); ok(await p.isVisible('svg.shape') && (await text(p)).includes('With the top 5'), 'balance of your shape');
   await p.click('[data-act=ch-view][data-arg=reality]'); ok((await text(p)).match(/Social media\s*\d+%/), 'priorities against reality shows where time went');
-  await p.click('#view .card.list .li >> nth=0').catch(() => {});
+  await p.click('[data-act=ch-view][data-arg=rank]');
 
   /* ---------------- C4 · What fits this era ---------------- */
   section = 'C4 What fits';
-  await p.click('[data-tab=choose]'); await p.click('[data-act=go][data-arg=ch_fit]');
+  await p.click('[data-tab=choose]'); await p.click('[data-act=ch-fit-open]');
   await p.click('[data-act=fit-suggest]');
   let sel = await p.$$eval('.fitrow[aria-pressed=true] b', els => els.map(e => e.textContent));
   ok(sel.includes('Call and visit parents') && !sel.some(t => t.startsWith('Buy a car')) && !(await p.isVisible('.overcard')), 'suggested set fits all budgets: ' + sel.join(', '));
@@ -679,7 +702,7 @@ const NATIVE_STUB = () => {
   ok(s2.goals.some(x => x.title === 'CFA exam prep' && x.total === 40 && x.end === '2027-01-31' && x.thing), 'CFA became a lock-in');
   ok(s2.quests.some(x => x.title === 'Goa trip with friends' && x.date === '2026-10-24'), 'Goa claimed the next free weekend');
   const hAfter = await p.evaluate(() => window.__era.planWeek('2026-Q4', '2026-10-22').health || 0); ok(Math.abs(hAfter - hBefore - 5) < 1e-6, 'era plan has 5 more hours of Health');
-  ok((await text(p)).includes('5 now'), 'Choose home');
+  ok((await text(p)).includes('5 this era'), 'Main quests home');
   await p.click(`[data-act=ch-hour][data-arg="${parId}"]`); s2 = await S(p);
   ok(s2.logs['2026-10-22'].blocks.some(b => b.thing === parId && b.k === 'family' && b.e - b.s === 1), '+1 h logs time to the thing');
   ok((await text(p)).includes('1 of 2.5 h this week'), 'progress this week');
@@ -717,7 +740,7 @@ const NATIVE_STUB = () => {
   await p.fill('#dc-why', 'Money first until the CFA is done'); await p.press('#dc-why', 'Tab');
   await p.click(`[data-act=dc-decide] >> nth=0`);
   dc = (await C()).decisions[0]; ok(dc.chosen && dc.review === '2026-11-21' && dc.why.includes('CFA'), 'decided, review in a month for a two-way door');
-  await p.click('[data-act=back]'); ok(await p.isVisible('#tabs'), 'back from the answer goes to Choose'); ok((await text(p)).includes('Buy a car?'), 'decision listed');
+  await p.click('[data-act=back]'); ok(await p.isVisible('#tabs'), 'back from the answer goes to Main quests'); ok((await text(p)).includes('Buy a car?'), 'decision listed');
   await setTime(p, '2026-11-22T10:00:00+05:30'); await p.click('[data-tab=choose]');
   ok((await text(p)).includes('right call?'), 'review card when due');
   await p.click(`[data-act=go][data-arg=ch_decreview][data-id="${dc.id}"]`); ok((await text(p)).includes('Money first'), 'shows your reason');
@@ -741,6 +764,27 @@ const NATIVE_STUB = () => {
   await p.click(`[data-act=rv-start][data-arg="${carId}"]`); c = await C(); ok(c.things.find(x => x.id === carId).status === 'now', 'started one from Next');
   await p.click('[data-act=rv-save]'); c = await C(); ok(c.reviews['2026-10'] && c.reviews['2026-10'].at, 'check saved');
   ok(!(await text(p)).includes('Monthly check, 5 minutes'), 'card gone once done');
+  ok(errs.length === 0, 'no page errors: ' + errs.join(' | '));
+  await p.context().close();
+
+  /* ---------------- C7 · Skip budgets ---------------- */
+  section = 'C7 Skip budgets';
+  p = await newPage(); await onboard(p); await p.click('[data-tab=choose]');
+  await p.click('[data-act=ch-add]'); await p.fill('#lg-t', 'Learn to sing properly'); await p.fill('#lg-why', 'Music is when I feel most like me'); await p.click('[data-act=lg-size][data-arg=l]'); await p.click('[data-act=lg-save]');
+  let sing = (await C()).things[0]; await p.click(`[data-act=lg-done][data-arg="${sing.id}|skip"]`);
+  ok((await p.textContent('#view .scorebar b')).includes('–'), 'not rated shows –');
+  await p.click('[data-act=ch-fit-open]'); await p.click('[data-act=ch-budget-skip]');
+  c = await C(); ok(c.budgets === 'skipped' && !c.setup, 'budgets skipped');
+  ok((await text(p)).includes('Budgets skipped') && !(await p.isVisible('#fitbuds')), 'no budget bars when skipped');
+  await p.click(`.fitrow[data-arg="${sing.id}"]`); await p.click('[data-act=fit-next]'); ok((await p.textContent('.toast')).includes('Size “Learn to sing properly” first'), 'a ticked goal needs sizing first');
+  await p.click('[data-act=ch-size-start]'); ok((await p.inputValue('[data-in=th-t]')) === 'Learn to sing properly', 'sizes the ticked one');
+  await p.click('[data-act=go][data-arg=ch_score]'); await p.click('[data-act=ch-next]');
+  ok(await p.getAttribute(`.fitrow[data-arg="${sing.id}"]`, 'aria-pressed') === 'true', 'still ticked after sizing');
+  await p.click('[data-act=fit-next]'); await p.click('[data-act=go][data-arg=ch_commit]'); await p.click('[data-act=ch-commit]');
+  s2 = await S(p); ok(s2.choose.things[0].status === 'now' && s2.moves.some(m => m.thing === sing.id), 'committed to Era without budgets');
+  ok((await text(p)).includes('This era') && !(await p.isVisible('#buds')) && (await text(p)).includes('Skipped · set them any time'), 'home without budget bars');
+  await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('era-v2')); s.labels.main = 'Big goals'; localStorage.setItem('era-v2', JSON.stringify(s)); }); await p.reload();
+  ok((await p.textContent('#tab-main')) === 'Big goals', 'the tab can be renamed in Names');
   ok(errs.length === 0, 'no page errors: ' + errs.join(' | '));
   await p.context().close();
 

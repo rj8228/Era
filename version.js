@@ -1,2 +1,2 @@
 /* The one place the version lives: the app, the offline cache and the Android build all read it. */
-self.ERA_VERSION = "0.3.4";
+self.ERA_VERSION = "0.4.0";
