@@ -133,7 +133,7 @@ const NATIVE_STUB = () => {
   let n = 0; while ((await p.textContent('#scard .stime')).trim() !== '6–7 pm' && n++ < 12) await yes(p);
   await p.click('[data-act=sw-no]'); ok(await p.isVisible('.sheet .actgrid'), 'changed opens the picker');
   await p.click('.sheet [data-pa=gym]'); await p.fill('.sheet #pk-to', '18:30');
-  ok((await p.textContent('.sheet .body')).includes('Counts for Health 0.5 h'), 'picker shows what it counts for');
+  ok((await p.textContent('.sheet .body')).includes('Counts for Health 30 m'), 'picker shows what it counts for');
   await p.click('.sheet [data-psave]');
   let d = await p.evaluate(() => window.__era.draft()); ok(d.blocks.some(b => b.s === 18 && b.e === 18.5 && b.k === 'health'), 'split 6–6:30 pm into Health');
   // keep swiping; the scrolling block asks "worth it?"
@@ -145,7 +145,7 @@ const NATIVE_STUB = () => {
   // fine-tune with the buttons
   const iFam = d.blocks.findIndex(b => b.k === 'family');
   await p.click(`[data-act=edge][data-arg="${iFam}|+"]`);
-  d = await p.evaluate(() => window.__era.draft()); ok(d.blocks.find(b => b.k === 'family').e === 20.5, 'end later by half an hour');
+  d = await p.evaluate(() => window.__era.draft()); ok(d.blocks.find(b => b.k === 'family').e === 20.25, 'end later by 15 minutes');
   // drag a handle on the dial
   const before = d.blocks.find(b => b.k === 'family').e;
   await (await p.$('#dialsvg')).scrollIntoViewIfNeeded();
@@ -155,7 +155,7 @@ const NATIVE_STUB = () => {
   await p.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2); await p.mouse.down();
   await p.mouse.move(cx + rr * Math.cos(ang(21)), cy + rr * Math.sin(ang(21)), { steps: 6 }); await p.mouse.up();
   d = await p.evaluate(() => window.__era.draft()); const famEnd = (d.blocks.find(b => b.k === 'family') || {}).e;
-  ok(famEnd !== before && Math.abs(famEnd - 21) <= 0.5, 'dragging a handle moves the edge (' + before + ' → ' + famEnd + ')');
+  ok(famEnd !== before && Math.abs(famEnd - 21) <= 0.5 && famEnd * 4 === Math.round(famEnd * 4), 'dragging a handle moves the edge in 15-minute steps (' + before + ' → ' + famEnd + ')');
   ok(sum24(d.blocks), 'still exactly 24 h after dragging');
   // tap an arc to change it
   const iSelf = d.blocks.findIndex(b => b.k === 'selfcare');
@@ -174,9 +174,9 @@ const NATIVE_STUB = () => {
   // leaving an edited day asks first
   await p.click('[data-act=go][data-arg=dial]'); await p.click('[data-act=edge][data-arg="0|+"]'); await p.click('[data-act=back]');
   ok(await p.isVisible('.sheet >> text=Save this day?'), 'unsaved day asks before leaving');
-  await p.click('.sheet [data-yes]'); s = await S(p); ok(s.logs['2026-10-23'].src === 'edited' && s.logs['2026-10-23'].blocks[0].e === 7.5, 'Save from the prompt keeps the change');
+  await p.click('.sheet [data-yes]'); s = await S(p); ok(s.logs['2026-10-23'].src === 'edited' && s.logs['2026-10-23'].blocks[0].e === 7.25, 'Save from the prompt keeps the change');
   await p.click('[data-act=go][data-arg=dial]'); await p.click('[data-act=edge][data-arg="0|+"]'); await p.click('[data-act=back]'); await p.click('.sheet [data-no]');
-  s = await S(p); ok(s.logs['2026-10-23'].blocks[0].e === 7.5, 'Discard from the prompt drops the change');
+  s = await S(p); ok(s.logs['2026-10-23'].blocks[0].e === 7.25, 'Discard from the prompt drops the change');
 
   /* ---------------- 2b · Two things at once ---------------- */
   section = '2b Two things at once';
@@ -522,7 +522,7 @@ const NATIVE_STUB = () => {
   await p.click('[data-act=pick][data-arg="0"]'); ok(await p.isVisible('.sheet #pk-from') && await p.isVisible('.sheet #pk-to'), 'tap a filled block to change it, with times');
   await p.click('.sheet [data-pa=scroll]'); await p.fill('.sheet #pk-to', '02:00');
   ok((await p.textContent('.sheet .body')).includes('Counts for Social media 2 h') && (await p.textContent('.sheet .body')).includes('The rest stays Sleep'), 'scrolling 12–2 am, the rest stays sleep');
-  await p.click('.sheet [data-pusual]'); await p.click('.sheet [data-psave]');
+  await p.click('.sheet [data-pusual=kind]'); await p.click('.sheet [data-psave]');
   let ln = await p.evaluate(() => window.__era.draft()); ok(ln.blocks[0].s === 0 && ln.blocks[0].e === 2 && ln.blocks[0].k === 'social' && ln.blocks[1].k === 'sleep' && ln.blocks[1].s === 2, '12–2 am is social media, sleep from 2');
   s = await S(p); ok(s.week.wd[0].s === 0 && s.week.wd[0].e === 2 && s.week.wd[0].a === 'scroll' && s.week.preset === 'custom', '“Usually like this” changes the normal workday');
   ok(await p.evaluate(() => { const b = window.__era.autoFill('2026-10-23')[0]; return b.k === 'social' && b.e === 2; }), 'so the next workday is filled that way');
@@ -533,6 +533,32 @@ const NATIVE_STUB = () => {
   ok((await p.textContent('.sheet .body')).includes('Until is before From'), 'past midnight is explained');
   await p.click('.sheet [data-psave]'); ok((await p.textContent('.toast')).includes("tomorrow's recap"), 'and not saved');
   await p.click('.sheet [data-close]'); await p.click('[data-act=save-draft]'); s = await S(p); ok(s.logs['2026-10-22'].blocks[0].k === 'social', 'day saved');
+  // Any minute can be typed; the buttons move 15 minutes, to the quarter hour
+  await p.click('[data-act=go][data-arg=dial]'); await p.click('[data-act=pick-add]'); await p.click('.sheet [data-pa=rest]'); await p.fill('.sheet #pk-from', '19:10'); await p.fill('.sheet #pk-to', '19:35');
+  ok((await p.textContent('.sheet .body')).includes('25 m'), 'times to the minute');
+  await p.click('.sheet [data-psave]'); ln = await p.evaluate(() => window.__era.draft()); let ri = ln.blocks.findIndex(b => b.a === 'rest' && Math.abs(b.s - (19 + 10 / 60)) < 1e-6);
+  ok(ri >= 0 && Math.abs(ln.blocks[ri].e - (19 + 35 / 60)) < 1e-6, 'a 7:10–7:35 pm block');
+  ok((await text(p)).includes('7:10–7:35 pm · 25 m'), 'shown as 25 m');
+  await p.click(`[data-act=edge][data-arg="${ri}|+"]`); ln = await p.evaluate(() => window.__era.draft()); ok(ln.blocks[ri].e === 19.75, '+ goes to the next quarter hour (7:45)');
+  await p.click(`[data-act=edge][data-arg="${ri}|+"]`); ln = await p.evaluate(() => window.__era.draft()); ok(ln.blocks[ri].e === 20, 'then 15 minutes more');
+  // Your own activity, every day
+  await p.click('[data-act=pick-add]'); await p.click('.sheet [data-pnew]'); await p.fill('#na-n', 'Singing');
+  ok(await p.getAttribute('.sheet:last-child [data-nak=selfcare]', 'aria-pressed') === 'true', 'counts for Self-care by default (no Creativity area)');
+  await p.click('.sheet:last-child [data-naown]'); await p.click('.sheet:last-child [data-nasave]');
+  s = await S(p); const sid = Object.keys(s.acts).find(k => s.acts[k].n === 'Singing'), sarea = s.acts[sid] && s.acts[sid].to;
+  ok(sid && s.areas.includes(sarea) && s.custom[sarea].n === 'Singing', 'Singing added as its own area');
+  ok(await p.getAttribute(`.sheet [data-pa="${sid}"]`, 'aria-pressed') === 'true', 'and picked');
+  await p.fill('.sheet #pk-from', '07:00'); await p.fill('.sheet #pk-to', '07:30'); await p.click('.sheet [data-pusual=all]'); await p.click('.sheet [data-psave]');
+  ok((await p.textContent('.toast')).includes('Singing, every day'), 'saved for every day');
+  s = await S(p); ok(['wd', 'we'].every(k => s.week[k].some(b => b.a === sid && b.s === 7 && b.e === 7.5)), 'in the normal workday and day off');
+  ok(await p.evaluate(id => window.__era.autoFill('2026-10-24').some(b => b.a === id), sid), 'so Saturday is filled with it too');
+  await p.click('[data-act=save-draft]'); await p.click('[data-tab=week]'); ok((await text(p)).includes('Your activities') && (await text(p)).includes('Singing'), 'Week shows your activities');
+  await p.click('[data-tab=me]'); await p.click('[data-act=go][data-arg=m_map]'); ok((await text(p)).includes('Singing'), 'listed under Where things count');
+  await p.click(`[data-act=act-edit][data-arg="${sid}"]`); await p.fill('#na-n', 'Singing practice'); await p.click('.sheet [data-nasave]');
+  s = await S(p); ok(s.acts[sid].n === 'Singing practice', 'renamed');
+  await p.click(`[data-act=act-edit][data-arg="${sid}"]`); await p.click('.sheet [data-nadel]'); s = await S(p);
+  ok(s.acts[sid].hidden && !(await p.isVisible(`[data-act=act-edit][data-arg="${sid}"]`)), 'removed from the list');
+  ok(await p.evaluate(id => S.logs['2026-10-22'].blocks.some(b => b.a === id) && ACTS[id].n === 'Singing practice' && !PICK_ACTS.includes(id), sid), 'days that had it keep its name; the picker no longer shows it');
   // With screen time, phone use in usual sleep time isn't sleep
   await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('era-v2')); s.st.on = true; s.week = { preset: 'office', workdays: [1, 2, 3, 4, 5], wd: s.week.wd.slice(1).map((b, i) => i === 0 ? { s: 0, e: b.e, a: 'sleep' } : b), we: s.week.we }; localStorage.setItem('era-v2', JSON.stringify(s)); }); await p.reload();
   const af = await p.evaluate(() => window.__era.autoFill('2026-10-21'));
